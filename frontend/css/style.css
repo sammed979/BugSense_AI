@@ -84,6 +84,7 @@ input, textarea, select {
     border-radius: 6px;
     width: 100%;
     font-size: 14px;
+    font-family: 'Courier New', monospace;
 }
 
 input:focus, textarea:focus, select:focus {

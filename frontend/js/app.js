@@ -6,12 +6,22 @@ window.monacoEditor = null;
 window.pendingRepair = null;
 
 // Monaco Editor Loader
+let monacoLoaded = false;
+
 function loadMonacoEditor() {
+    if (monacoLoaded || window.monacoEditor) {
+        if (window.monacoEditor) {
+            window.monacoEditor.layout();
+        }
+        return;
+    }
+
     const script = document.createElement('script');
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js';
     script.onload = () => {
         require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
         require(['vs/editor/editor.main'], function () {
+            monacoLoaded = true;
             initializeMonaco();
         });
     };
@@ -28,7 +38,10 @@ function initializeMonaco() {
             automaticLayout: true,
             minimap: { enabled: false },
             lineNumbers: 'on',
+            fontSize: 14,
         });
+    } else if (container && window.monacoEditor) {
+        window.monacoEditor.layout();
     }
 }
 
@@ -220,11 +233,11 @@ function renderWorkspace() {
                         <h3 style="margin-bottom: 15px;">Diagnostic Inputs</h3>
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; margin-bottom: 5px;">Error Message (Optional)</label>
-                            <input type="text" id="error-message" placeholder="e.g., NameError: name 'total_price' is not defined">
+                            <textarea id="error-message" rows="4" placeholder="e.g., NameError: name 'total_price' is not defined"></textarea>
                         </div>
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; margin-bottom: 5px;">Terminal Logs (Optional)</label>
-                            <textarea id="terminal-logs" rows="3" placeholder="Paste terminal output here..."></textarea>
+                            <textarea id="terminal-logs" rows="8" placeholder="Paste terminal output here..."></textarea>
                         </div>
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; margin-bottom: 5px;">Language</label>
@@ -242,7 +255,7 @@ function renderWorkspace() {
                     <div class="card">
                         <h3 style="margin-bottom: 15px;">Source Code</h3>
                         <div id="monaco-editor-container"></div>
-                        <div style="margin-top: 15px; display: flex; gap: 10px;">
+                        <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                             <button id="run-code-btn" onclick="runCode()">Run Code</button>
                             <button id="analyze-btn" onclick="analyzeCode()">Analyze</button>
                             <button id="repair-btn" onclick="repairCode()">Repair</button>
