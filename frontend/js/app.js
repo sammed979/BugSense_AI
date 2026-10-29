@@ -32,6 +32,10 @@ function loadMonacoEditor() {
 function initializeMonaco() {
     const container = document.getElementById('monaco-editor-container');
     if (container && !window.monacoEditor) {
+        // Ensure container has dimensions
+        container.style.height = '400px';
+        container.style.width = '100%';
+        
         window.monacoEditor = monaco.editor.create(container, {
             value: '# Enter your Python code here\ndef calculate_total(price, quantity):\n    return price * quantity\n\nprint(total_price)',
             language: 'python',
@@ -43,6 +47,13 @@ function initializeMonaco() {
             fontFamily: 'JetBrains Mono',
             padding: { top: 16 },
         });
+        
+        // Force layout after a short delay
+        setTimeout(() => {
+            if (window.monacoEditor) {
+                window.monacoEditor.layout();
+            }
+        }, 100);
     } else if (container && window.monacoEditor) {
         window.monacoEditor.layout();
     }
@@ -418,6 +429,12 @@ function renderWorkspace() {
 
     setTimeout(() => {
         loadMonacoEditor();
+        // Fallback: try again if Monaco didn't load
+        setTimeout(() => {
+            if (!window.monacoEditor) {
+                loadMonacoEditor();
+            }
+        }, 500);
     }, 100);
     
     updateActiveNavItem();
