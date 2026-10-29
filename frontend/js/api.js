@@ -63,7 +63,14 @@ class APIClient {
             },
         };
 
+        // Add timeout for long-running requests (like AI repairs)
+        const timeout = options.timeout || 60000; // 60 second default
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        config.signal = controller.signal;
+
         let response = await fetch(url, config);
+        clearTimeout(timeoutId);
 
         // If unauthorized, try to refresh token
         if (response.status === 401 && !this.refreshing) {
@@ -75,7 +82,11 @@ class APIClient {
                     ...this.getAuthHeaders(),
                     ...options.headers,
                 };
+                const controller2 = new AbortController();
+                const timeoutId2 = setTimeout(() => controller2.abort(), timeout);
+                config.signal = controller2.signal;
                 response = await fetch(url, config);
+                clearTimeout(timeoutId2);
             } catch (error) {
                 console.error('Token refresh failed:', error);
                 window.auth.clearTokens();
@@ -155,6 +166,7 @@ class APIClient {
         const response = await this.request('/repair/', {
             method: 'POST',
             body: JSON.stringify(payload),
+            timeout: 120000, // 2 minute timeout for AI repairs
         });
         return response.json();
     }

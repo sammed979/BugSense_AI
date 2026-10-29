@@ -734,11 +734,13 @@ async function repairCode() {
             }
         }
 
+        console.log('Sending repair request with error:', actualError);
         const result = await window.api.generateRepair({
             source_code: code,
             error_message: actualError || 'No error message',
             language: 'python',
         });
+        console.log('Repair response:', result);
 
         window.pendingRepair = result;
         currentAttemptId = result.attempt_id;
@@ -796,6 +798,7 @@ async function repairCode() {
 
         terminalOutput.textContent = 'Repair generated. Review the AI Diagnosis panel and choose to Apply or Reject.';
     } catch (error) {
+        console.error('Repair error:', error);
         aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Repair failed: ${error.message}</div>`;
         terminalOutput.textContent = 'Error: ' + error.message;
     } finally {
