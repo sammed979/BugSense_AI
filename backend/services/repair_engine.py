@@ -57,13 +57,19 @@ class RepairEngine:
         diagnosis: Dict[str, Any],
         language: str
     ) -> Dict[str, Any]:
-        """Use AI to generate a code repair. Tries both OpenAI and Gemini."""
+        """Use AI to generate a code repair. Respects AI_PROVIDER_PRIORITY setting."""
         
         print(f"=== Repair Engine Debug ===")
         print(f"OpenAI available: {OPENAI_AVAILABLE}")
         print(f"OpenAI API key configured: {bool(os.environ.get('OPENAI_API_KEY'))}")
         print(f"Gemini available: {GOOGLE_GENAI_AVAILABLE}")
         print(f"Gemini API key configured: {bool(os.environ.get('GOOGLE_API_KEY'))}")
+        
+        # Get provider priority from environment
+        provider_priority = os.environ.get('AI_PROVIDER_PRIORITY', 'gemini,openai').lower()
+        providers = [p.strip() for p in provider_priority.split(',') if p.strip()]
+        
+        print(f"Provider priority: {providers}")
         
         # Enhance diagnosis if not provided
         if not diagnosis or diagnosis.get('error_category') == 'Unknown':
@@ -72,62 +78,73 @@ class RepairEngine:
         
         last_error = None
         
-        # Try OpenAI first if configured
-        openai_api_key = os.environ.get('OPENAI_API_KEY')
-        openai_model = os.environ.get('OPENAI_MODEL', 'gpt-4o')
-        
-        if openai_api_key and OPENAI_AVAILABLE:
-            print(f"Attempting OpenAI repair with model: {openai_model}")
-            try:
-                result = await RepairEngine._repair_with_openai(
-                    source_code, error_message, diagnosis, language, openai_api_key, openai_model
-                )
-                print(f"OpenAI result source: {result.get('source')}")
-                if result.get('error'):
-                    print(f"OpenAI failed with error: {result.get('error')}, trying Gemini...")
-                    last_error = result.get('error')
+        # Try providers in priority order
+        for provider in providers:
+            if provider == 'openai':
+                openai_api_key = os.environ.get('OPENAI_API_KEY')
+                openai_model = os.environ.get('OPENAI_MODEL', 'gpt-4o')
+                
+                if openai_api_key and OPENAI_AVAILABLE:
+                    print(f"Attempting OpenAI repair with model: {openai_model}")
+                    try:
+                        result = await RepairEngine._repair_with_openai(
+                            source_code, error_message, diagnosis, language, openai_api_key, openai_model
+                        )
+                        print(f"OpenAI result source: {result.get('source')}")
+                        if result.get('error'):
+                            print(f"OpenAI failed with error: {result.get('error')}")
+                            last_error = f"OpenAI: {result.get('error')}"
+                        else:
+                            print(f"OpenAI repair successful")
+                            return result
+                    except Exception as e:
+                        print(f"OpenAI repair failed with exception: {e}")
+                        last_error = f"OpenAI exception: {str(e)}"
                 else:
-                    print(f"OpenAI repair successful")
-                    return result
-            except Exception as e:
-                print(f"OpenAI repair failed with exception: {e}, trying Gemini...")
-                last_error = f"OpenAI exception: {str(e)}"
-        
-        # Try Google Gemini as fallback
-        google_api_key = os.environ.get('GOOGLE_API_KEY')
-        gemini_model = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
-        
-        if google_api_key and GOOGLE_GENAI_AVAILABLE:
-            print(f"Attempting Gemini repair with model: {gemini_model}")
-            try:
-                result = await RepairEngine._repair_with_gemini(
-                    source_code, error_message, diagnosis, language, google_api_key, gemini_model
-                )
-                print(f"Gemini result source: {result.get('source')}")
-                if result.get('error'):
-                    print(f"Gemini failed with error: {result.get('error')}")
-                    last_error = result.get('error')
+                    print(f"OpenAI skipped (no API key or not available)")
+                    
+            elif provider == 'gemini':
+                google_api_key = os.environ.get('GOOGLE_API_KEY')
+                gemini_model = os.environ.get('GEMINI_MODEL', 'gemini-3.8-flash')
+                
+                if google_api_key and GOOGLE_GENAI_AVAILABLE:
+                    print(f"Attempting Gemini repair with model: {gemini_model}")
+                    try:
+                        result = await RepairEngine._repair_with_gemini(
+                            source_code, error_message, diagnosis, language, google_api_key, gemini_model
+                        )
+                        print(f"Gemini result source: {result.get('source')}")
+                        if result.get('error'):
+                            print(f"Gemini failed with error: {result.get('error')}")
+                            last_error = f"Gemini: {result.get('error')}"
+                        else:
+                            print(f"Gemini repair successful")
+                            return result
+                    except Exception as e:
+                        print(f"Gemini repair failed with exception: {e}")
+                        last_error = f"Gemini exception: {str(e)}"
                 else:
-                    print(f"Gemini repair successful")
-                    return result
-            except Exception as e:
-                print(f"Gemini repair failed with exception: {e}")
-                last_error = f"Gemini exception: {str(e)}"
+                    print(f"Gemini skipped (no API key or not available)")
+                    
+            elif provider == 'heuristic':
+                print("Using heuristic repair as requested")
+                from .code_analyzer import CodeAnalyzer
+                enhanced_diagnosis = CodeAnalyzer.analyze_error_context(source_code, error_message)
+                return RepairEngine._generate_heuristic_repair(source_code, error_message, enhanced_diagnosis)
         
-        # Both failed - return combined error
+        # All configured providers failed - return combined error
         if not openai_api_key and not google_api_key:
             return {
                 'error': 'No AI provider configured. Please set OPENAI_API_KEY or GOOGLE_API_KEY in environment.',
                 'repaired_code': source_code,
-                'source': 'error'
+                'source': 'error',
+                'suggest_heuristic': True
             }
         
         error_msg = f'All AI providers failed. '
-        if openai_api_key:
-            error_msg += f'OpenAI: {last_error if last_error else "unknown error"}. '
-        if google_api_key:
-            error_msg += f'Gemini: {last_error if last_error else "unknown error"}. '
-        error_msg += 'Use heuristic repair as a fallback.'
+        if last_error:
+            error_msg += f'Last error: {last_error}. '
+        error_msg += 'Use Quick Fix (heuristic repair) as a fallback.'
         
         return {
             'error': error_msg,
