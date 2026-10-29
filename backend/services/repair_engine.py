@@ -57,7 +57,7 @@ class RepairEngine:
         diagnosis: Dict[str, Any],
         language: str
     ) -> Dict[str, Any]:
-        """Use AI to generate a code repair."""
+        """Use AI to generate a code repair. Tries both OpenAI and Gemini."""
         
         print(f"=== Repair Engine Debug ===")
         print(f"OpenAI available: {OPENAI_AVAILABLE}")
@@ -69,6 +69,8 @@ class RepairEngine:
         if not diagnosis or diagnosis.get('error_category') == 'Unknown':
             from .code_analyzer import CodeAnalyzer
             diagnosis = CodeAnalyzer.analyze_error_context(source_code, error_message)
+        
+        last_error = None
         
         # Try OpenAI first if configured
         openai_api_key = os.environ.get('OPENAI_API_KEY')
@@ -83,16 +85,17 @@ class RepairEngine:
                 print(f"OpenAI result source: {result.get('source')}")
                 if result.get('error'):
                     print(f"OpenAI failed with error: {result.get('error')}, trying Gemini...")
-                    # Don't return error yet, try Gemini
+                    last_error = result.get('error')
                 else:
                     print(f"OpenAI repair successful")
                     return result
             except Exception as e:
                 print(f"OpenAI repair failed with exception: {e}, trying Gemini...")
+                last_error = f"OpenAI exception: {str(e)}"
         
-        # Try Google Gemini configuration
+        # Try Google Gemini as fallback
         google_api_key = os.environ.get('GOOGLE_API_KEY')
-        gemini_model = os.environ.get('GEMINI_MODEL', 'gemini-1.5-pro')
+        gemini_model = os.environ.get('GEMINI_MODEL', 'gemini-1.0-pro')
         
         if google_api_key and GOOGLE_GENAI_AVAILABLE:
             print(f"Attempting Gemini repair with model: {gemini_model}")
@@ -103,20 +106,15 @@ class RepairEngine:
                 print(f"Gemini result source: {result.get('source')}")
                 if result.get('error'):
                     print(f"Gemini failed with error: {result.get('error')}")
-                    # Return the error instead of falling back to heuristic
-                    return result
+                    last_error = result.get('error')
                 else:
                     print(f"Gemini repair successful")
                     return result
             except Exception as e:
                 print(f"Gemini repair failed with exception: {e}")
-                return {
-                    'error': f'Gemini API exception: {str(e)}',
-                    'repaired_code': source_code,
-                    'source': 'error'
-                }
+                last_error = f"Gemini exception: {str(e)}"
         
-        # No AI configured - return error, not heuristic
+        # Both failed - return combined error
         if not openai_api_key and not google_api_key:
             return {
                 'error': 'No AI provider configured. Please set OPENAI_API_KEY or GOOGLE_API_KEY in environment.',
@@ -124,11 +122,18 @@ class RepairEngine:
                 'source': 'error'
             }
         
-        # Both configured but failed - return last error
+        error_msg = f'All AI providers failed. '
+        if openai_api_key:
+            error_msg += f'OpenAI: {last_error if last_error else "unknown error"}. '
+        if google_api_key:
+            error_msg += f'Gemini: {last_error if last_error else "unknown error"}. '
+        error_msg += 'Use heuristic repair as a fallback.'
+        
         return {
-            'error': 'All AI providers failed. Check API keys and configuration.',
+            'error': error_msg,
             'repaired_code': source_code,
-            'source': 'error'
+            'source': 'error',
+            'suggest_heuristic': True
         }
 
     @staticmethod

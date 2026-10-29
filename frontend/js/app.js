@@ -744,8 +744,8 @@ async function repairCode() {
                     <div class="diagnosis-value text-error">${result.error}</div>
                 </div>
                 <div class="diagnosis-item">
-                    <div class="diagnosis-label">Note</div>
-                    <div class="diagnosis-value text-secondary">AI provider failed. You can try heuristic repair as a fallback.</div>
+                    <div class="diagnosis-label">Suggestion</div>
+                    <div class="diagnosis-value text-secondary">AI provider failed. Try heuristic repair as a fallback.</div>
                 </div>
                 <div style="margin-top: 16px;">
                     <button class="secondary" onclick="repairWithHeuristic()" style="width: 100%;">Try Heuristic Repair</button>
