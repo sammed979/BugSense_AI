@@ -150,6 +150,24 @@ class APIClient {
         });
         return response.json();
     }
+
+    async generateRepair(payload) {
+        const response = await this.request('/repair/', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        return response.json();
+    }
+
+    async getHistory() {
+        const response = await this.request('/history/');
+        return response.json();
+    }
+
+    async getSession(sessionId) {
+        const response = await this.request(`/history/${sessionId}/`);
+        return response.json();
+    }
 }
 
 window.api = new APIClient();

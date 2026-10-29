@@ -1,13 +1,14 @@
-// BugSense AI - Main Application
+// BugSense AI - Premium Debugging Studio
 let currentSessionId = null;
 let currentAttemptId = null;
 let analysisResult = null;
 window.monacoEditor = null;
 window.pendingRepair = null;
+let monacoLoaded = false;
+let sidebarOpen = false;
+let activeTerminalTab = 'output';
 
 // Monaco Editor Loader
-let monacoLoaded = false;
-
 function loadMonacoEditor() {
     if (monacoLoaded || window.monacoEditor) {
         if (window.monacoEditor) {
@@ -38,7 +39,9 @@ function initializeMonaco() {
             automaticLayout: true,
             minimap: { enabled: false },
             lineNumbers: 'on',
-            fontSize: 14,
+            fontSize: 13,
+            fontFamily: 'JetBrains Mono',
+            padding: { top: 16 },
         });
     } else if (container && window.monacoEditor) {
         window.monacoEditor.layout();
@@ -68,31 +71,106 @@ function handleRoute() {
         case '#/workspace':
             renderWorkspace();
             break;
+        case '#/history':
+            renderHistory();
+            break;
+        case '#/settings':
+            renderSettings();
+            break;
         default:
             renderDashboard();
     }
+    
+    updateActiveNavItem();
+}
+
+function updateActiveNavItem() {
+    const hash = window.location.hash || '#/dashboard';
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === hash) {
+            item.classList.add('active');
+        }
+    });
+}
+
+// Toggle Sidebar
+function toggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('open', sidebarOpen);
+    }
+}
+
+// Render Sidebar
+function renderSidebar() {
+    return `
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-brand" onclick="window.location.hash='#/dashboard'">
+                🐛
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#/dashboard" class="nav-item" id="nav-dashboard">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 001 1h3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#/workspace" class="nav-item" id="nav-workspace">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    <span>Workspace</span>
+                </a>
+                <a href="#/history" class="nav-item" id="nav-history">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>History</span>
+                </a>
+                <a href="#/settings" class="nav-item" id="nav-settings">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 00-1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572-1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 001.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span>Settings</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="#" onclick="window.auth.logout()" class="nav-item">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </div>
+    `;
 }
 
 // Render Login Page
 function renderLogin() {
     document.getElementById('app').innerHTML = `
-        <div class="container">
-            <div class="card" style="max-width: 400px; margin: 100px auto;">
-                <h2 style="margin-bottom: 20px; color: #58a6ff;">Login to BugSense AI</h2>
-                <form id="login-form">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 5px;">Username</label>
-                        <input type="text" id="username" required>
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 5px;">Password</label>
-                        <input type="password" id="password" required>
-                    </div>
-                    <button type="submit" style="width: 100%;">Login</button>
-                </form>
-                <p style="margin-top: 15px; text-align: center;">
-                    Don't have an account? <a href="#/register" style="color: #58a6ff;">Register</a>
-                </p>
+        <div class="main-content">
+            <div class="content-area">
+                <div class="auth-card">
+                    <h2>Login to BugSense AI</h2>
+                    <form id="login-form" class="auth-form">
+                        <div class="form-group">
+                            <label>Username</label>
+                            <input type="text" id="username" required placeholder="Enter your username">
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="password" required placeholder="Enter your password">
+                        </div>
+                        <button type="submit">Login</button>
+                        <div class="auth-footer">
+                            Don't have an account? <a href="#/register">Register</a>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     `;
@@ -114,27 +192,29 @@ function renderLogin() {
 // Render Register Page
 function renderRegister() {
     document.getElementById('app').innerHTML = `
-        <div class="container">
-            <div class="card" style="max-width: 400px; margin: 100px auto;">
-                <h2 style="margin-bottom: 20px; color: #58a6ff;">Register</h2>
-                <form id="register-form">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 5px;">Username</label>
-                        <input type="text" id="username" required>
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 5px;">Email</label>
-                        <input type="email" id="email" required>
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 5px;">Password</label>
-                        <input type="password" id="password" required>
-                    </div>
-                    <button type="submit" style="width: 100%;">Register</button>
-                </form>
-                <p style="margin-top: 15px; text-align: center;">
-                    Already have an account? <a href="#/login" style="color: #58a6ff;">Login</a>
-                </p>
+        <div class="main-content">
+            <div class="content-area">
+                <div class="auth-card">
+                    <h2>Create Account</h2>
+                    <form id="register-form" class="auth-form">
+                        <div class="form-group">
+                            <label>Username</label>
+                            <input type="text" id="username" required placeholder="Choose a username">
+                        </div>
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="email" required placeholder="Enter your email">
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="password" required placeholder="Choose a password">
+                        </div>
+                        <button type="submit">Register</button>
+                        <div class="auth-footer">
+                            Already have an account? <a href="#/login">Login</a>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     `;
@@ -159,56 +239,75 @@ async function renderDashboard() {
     try {
         const stats = await window.api.getDashboardStats();
         document.getElementById('app').innerHTML = `
-            <header>
-                <div class="container">
-                    <nav>
-                        <div class="logo">🔍 BugSense AI</div>
-                        <div>
-                            <a href="#/dashboard" class="active">Dashboard</a>
-                            <a href="#/workspace">Workspace</a>
-                            <a href="#" onclick="window.auth.logout()">Logout</a>
+            ${renderSidebar()}
+            <div class="main-content">
+                <div class="content-area">
+                    <div class="dashboard-welcome">
+                        <h1>Welcome to BugSense AI</h1>
+                        <p>Find the bug. Understand the cause. Validate the fix.</p>
+                        <div class="dashboard-actions">
+                            <button onclick="window.location.hash='#/workspace'">New Debugging Session</button>
                         </div>
-                    </nav>
-                </div>
-            </header>
-            <div class="container">
-                <h1>Dashboard</h1>
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <h3>Total Sessions</h3>
-                        <div class="value">${stats.total_sessions || 0}</div>
                     </div>
-                    <div class="stat-card">
-                        <h3>Repairs Attempted</h3>
-                        <div class="value">${stats.repairs_attempted || 0}</div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon sessions">📊</div>
+                            <div class="stat-info">
+                                <div class="stat-label">Total Sessions</div>
+                                <div class="stat-value">${stats.total_sessions || 0}</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon repairs">🔧</div>
+                            <div class="stat-info">
+                                <div class="stat-label">Repairs Attempted</div>
+                                <div class="stat-value">${stats.repairs_attempted || 0}</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon verified">✓</div>
+                            <div class="stat-info">
+                                <div class="stat-label">Verified Repairs</div>
+                                <div class="stat-value">${stats.verified_repairs || 0}</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon failed">✗</div>
+                            <div class="stat-info">
+                                <div class="stat-label">Failed Verifications</div>
+                                <div class="stat-value">${stats.failed_verifications || 0}</div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="stat-card success">
-                        <h3>Verified Repairs</h3>
-                        <div class="value">${stats.verified_repairs || 0}</div>
+                    
+                    <div class="section-header">
+                        <h2 class="section-title">Recent Sessions</h2>
                     </div>
-                    <div class="stat-card error">
-                        <h3>Failed Verifications</h3>
-                        <div class="value">${stats.failed_verifications || 0}</div>
-                    </div>
-                </div>
-                <div class="card">
-                    <h3>Recent Sessions</h3>
-                    <button onclick="window.location.hash='#/workspace'" style="margin-bottom: 16px;">New Debugging Session</button>
-                    <div id="recent-sessions">
+                    <div class="sessions-list" id="recent-sessions">
                         <div class="empty-state">
+                            <div class="empty-state-icon">📂</div>
                             <p>No recent sessions yet.</p>
-                            <p>Start a new debugging session to begin!</p>
+                            <button class="secondary" onclick="window.location.hash='#/workspace'" style="margin-top: 12px;">Start New Session</button>
                         </div>
                     </div>
                 </div>
             </div>
         `;
+        
+        updateActiveNavItem();
     } catch (error) {
         console.error('Failed to load dashboard:', error);
         document.getElementById('app').innerHTML = `
-            <div class="container">
-                <div class="error-message">
-                    Failed to load dashboard. Please try again.
+            ${renderSidebar()}
+            <div class="main-content">
+                <div class="content-area">
+                    <div class="empty-content">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <p>Failed to load dashboard. Please try again.</p>
+                    </div>
                 </div>
             </div>
         `;
@@ -218,56 +317,98 @@ async function renderDashboard() {
 // Render Workspace
 function renderWorkspace() {
     document.getElementById('app').innerHTML = `
-        <header>
-            <div class="container">
-                <nav>
-                    <div class="logo">🔍 BugSense AI</div>
-                    <div>
-                        <a href="#/dashboard">Dashboard</a>
-                        <a href="#/workspace" class="active">Workspace</a>
-                        <a href="#" onclick="window.auth.logout()">Logout</a>
-                    </div>
-                </nav>
-            </div>
-        </header>
-        <div class="container">
-            <h1>Debugging Workspace</h1>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-                <div>
-                    <div class="card">
-                        <h3>Diagnostic Inputs</h3>
-                        <div style="margin-bottom: 16px;">
-                            <label>Error Message (Optional)</label>
-                            <textarea id="error-message" rows="4" placeholder="e.g., NameError: name 'total_price' is not defined"></textarea>
-                        </div>
-                        <div style="margin-bottom: 16px;">
-                            <label>Terminal Logs (Optional)</label>
-                            <textarea id="terminal-logs" rows="8" placeholder="Paste terminal output here..."></textarea>
-                        </div>
-                        <div style="margin-bottom: 16px;">
-                            <label>Language</label>
-                            <select id="language">
-                                <option value="python">Python</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <h3>Terminal Output</h3>
-                        <div id="terminal-output" class="terminal">No output yet. Click "Run Code" to execute.</div>
-                    </div>
+        ${renderSidebar()}
+        <div class="main-content">
+            <div class="workspace-header">
+                <div class="workspace-title">Debugging Workspace</div>
+                <div class="workspace-controls">
+                    <select id="language" style="width: auto;">
+                        <option value="python">Python</option>
+                    </select>
                 </div>
-                <div>
-                    <div class="card">
-                        <h3>Source Code</h3>
+            </div>
+            <div class="content-area" style="padding: 16px;">
+                <div class="workspace-layout">
+                    <div class="editor-section">
+                        <div class="action-toolbar">
+                            <div class="toolbar-group">
+                                <button id="run-code-btn" onclick="runCode()">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Run Code
+                                </button>
+                                <button id="analyze-btn" onclick="analyzeCode()" class="secondary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    Analyze
+                                </button>
+                                <button id="repair-btn" onclick="repairCode()" class="secondary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 00-1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572-1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 001.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    Repair
+                                </button>
+                                <button id="verify-btn" onclick="verifyCode()" class="secondary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Verify
+                                </button>
+                            </div>
+                            <div class="toolbar-divider"></div>
+                            <div class="toolbar-group">
+                                <button onclick="loadExample()" class="secondary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    Load Example
+                                </button>
+                                <button onclick="clearError()" class="secondary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                    Clear Error
+                                </button>
+                                <button onclick="clearLogs()" class="secondary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Clear Logs
+                                </button>
+                            </div>
+                        </div>
                         <div id="monaco-editor-container"></div>
-                        <div style="margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button id="run-code-btn" onclick="runCode()">▶ Run Code</button>
-                            <button id="analyze-btn" onclick="analyzeCode()">🔍 Analyze</button>
-                            <button id="repair-btn" onclick="repairCode()">🔧 Repair</button>
-                            <button id="verify-btn" onclick="verifyCode()">✓ Verify</button>
-                            <button onclick="loadExample()">📄 Load Example</button>
-                            <button onclick="clearError()">✕ Clear Error</button>
-                            <button onclick="clearLogs()">🗑️ Clear Logs</button>
+                        <div class="terminal-panel">
+                            <div class="terminal-tabs">
+                                <button class="terminal-tab active" onclick="switchTerminalTab('output')">Output</button>
+                                <button class="terminal-tab" onclick="switchTerminalTab('errors')">Errors</button>
+                                <button class="terminal-tab" onclick="switchTerminalTab('analysis')">AI Analysis</button>
+                                <button class="terminal-tab" onclick="switchTerminalTab('diff')">Repair Diff</button>
+                                <button class="terminal-tab" onclick="switchTerminalTab('verification')">Verification</button>
+                            </div>
+                            <div class="terminal-content" id="terminal-output">No output yet. Click "Run Code" to execute.</div>
+                        </div>
+                    </div>
+                    <div class="ai-panel">
+                        <div class="ai-panel-header">
+                            <div class="ai-panel-title">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                </svg>
+                                AI Diagnosis
+                            </div>
+                        </div>
+                        <div class="ai-panel-content" id="ai-diagnosis-content">
+                            <div class="empty-content">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                </svg>
+                                <p style="font-size: 13px;">Run code and click "Analyze" to get AI-powered diagnosis</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -278,6 +419,103 @@ function renderWorkspace() {
     setTimeout(() => {
         loadMonacoEditor();
     }, 100);
+    
+    updateActiveNavItem();
+}
+
+// Render History
+async function renderHistory() {
+    try {
+        const history = await window.api.getHistory();
+        document.getElementById('app').innerHTML = `
+            ${renderSidebar()}
+            <div class="main-content">
+                <div class="workspace-header">
+                    <div class="workspace-title">Session History</div>
+                </div>
+                <div class="content-area">
+                    <div class="sessions-list" id="history-list">
+                        ${history.length === 0 ? `
+                            <div class="empty-state">
+                                <div class="empty-state-icon">📂</div>
+                                <p>No debugging sessions yet.</p>
+                                <button class="secondary" onclick="window.location.hash='#/workspace'" style="margin-top: 12px;">Start New Session</button>
+                            </div>
+                        ` : history.map(session => `
+                            <div class="session-row">
+                                <div class="session-info">
+                                    <div class="session-name">Session #${session.id}</div>
+                                    <div class="session-meta">
+                                        <span>${session.language || 'Python'}</span>
+                                        <span>${new Date(session.created_at).toLocaleDateString()}</span>
+                                    </div>
+                                </div>
+                                <span class="session-status ${session.status || 'pending'}">${session.status || 'Pending'}</span>
+                                <div class="session-action">
+                                    <button class="secondary" onclick="openSession(${session.id})">Open</button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        updateActiveNavItem();
+    } catch (error) {
+        console.error('Failed to load history:', error);
+        document.getElementById('app').innerHTML = `
+            ${renderSidebar()}
+            <div class="main-content">
+                <div class="content-area">
+                    <div class="empty-content">
+                        <p>Failed to load history. Please try again.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+}
+
+// Render Settings
+function renderSettings() {
+    document.getElementById('app').innerHTML = `
+        ${renderSidebar()}
+        <div class="main-content">
+            <div class="workspace-header">
+                <div class="workspace-title">Settings</div>
+            </div>
+            <div class="content-area">
+                <div class="empty-content">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 00-1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572-1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 001.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <p>Settings panel coming soon.</p>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    updateActiveNavItem();
+}
+
+// Terminal Tab Switching
+function switchTerminalTab(tab) {
+    activeTerminalTab = tab;
+    document.querySelectorAll('.terminal-tab').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    const terminalOutput = document.getElementById('terminal-output');
+    const tabContents = {
+        output: 'No output yet. Click "Run Code" to execute.',
+        errors: 'No errors yet.',
+        analysis: analysisResult ? JSON.stringify(analysisResult, null, 2) : 'No analysis yet. Click "Analyze" to get AI diagnosis.',
+        diff: window.pendingRepair ? window.pendingRepair.diff : 'No repair diff available.',
+        verification: 'No verification results yet. Click "Verify" to test your code.'
+    };
+    
+    terminalOutput.textContent = tabContents[tab] || 'No content.';
 }
 
 // Load Example
@@ -292,13 +530,33 @@ print(total_price)`;
     }
 }
 
+// Clear Error
+function clearError() {
+    const terminalOutput = document.getElementById('terminal-output');
+    terminalOutput.textContent = 'Error cleared.';
+}
+
+// Clear Logs
+function clearLogs() {
+    const terminalOutput = document.getElementById('terminal-output');
+    terminalOutput.textContent = 'Logs cleared.';
+}
+
 // Run Code
 async function runCode() {
     const code = window.monacoEditor ? window.monacoEditor.getValue() : '';
     const language = document.getElementById('language').value;
     const terminalOutput = document.getElementById('terminal-output');
+    const runBtn = document.getElementById('run-code-btn');
 
-    terminalOutput.textContent = 'Running code...';
+    if (!code.trim()) {
+        terminalOutput.textContent = 'Error: No source code to execute. Please enter code first.';
+        return;
+    }
+
+    runBtn.disabled = true;
+    runBtn.innerHTML = '<div class="loading-spinner"></div> Running...';
+    terminalOutput.textContent = 'Executing code...';
 
     try {
         const result = await window.api.executeCode({
@@ -307,143 +565,174 @@ async function runCode() {
             session_id: currentSessionId,
         });
 
-        terminalOutput.textContent = result.stdout || result.stderr || 'No output';
+        let output = `=== Execution Result ===\n`;
+        output += `Exit Code: ${result.exit_code}\n`;
+        output += `Duration: ${result.duration_ms}ms\n\n`;
+
+        if (result.exit_code === 0) {
+            output += `Status: SUCCESS\n`;
+            if (result.stdout) {
+                output += `\n=== Output ===\n${result.stdout}`;
+            }
+        } else {
+            output += `Status: FAILED\n`;
+            if (result.stderr) {
+                output += `\n=== Error Output ===\n${result.stderr}`;
+            }
+        }
+
+        if (result.timed_out) {
+            output += `\nWarning: Execution timed out`;
+        }
+
+        terminalOutput.textContent = output;
+        
+        // Store error for analysis
+        if (result.exit_code !== 0 && result.stderr) {
+            currentSessionId = result.session_id;
+        }
     } catch (error) {
         terminalOutput.textContent = 'Error: ' + error.message;
+    } finally {
+        runBtn.disabled = false;
+        runBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Run Code
+        `;
     }
 }
 
 // Analyze Code
 async function analyzeCode() {
     const code = window.monacoEditor ? window.monacoEditor.getValue() : '';
-    const errorMessage = document.getElementById('error-message').value;
-    const language = document.getElementById('language').value;
     const terminalOutput = document.getElementById('terminal-output');
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
 
-    terminalOutput.textContent = 'Analyzing code...';
+    if (!code.trim()) {
+        terminalOutput.textContent = 'Error: No source code to analyze.';
+        return;
+    }
+
+    analyzeBtn.disabled = true;
+    aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Analyzing...</div>';
 
     try {
         const result = await window.api.analyzeCode({
             source_code: code,
-            error_message: errorMessage || 'Unknown error',
-            language: language,
-            session_id: currentSessionId,
+            language: 'python',
         });
 
         analysisResult = result;
-        terminalOutput.textContent = JSON.stringify(result, null, 2);
+        
+        aiDiagnosisContent.innerHTML = `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Error Type</div>
+                <div class="diagnosis-value">${result.error_category || 'Unknown'}</div>
+            </div>
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Summary</div>
+                <div class="diagnosis-value">${result.summary || 'No summary available'}</div>
+            </div>
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Root Cause</div>
+                <div class="diagnosis-value ai">${result.possible_causes ? result.possible_causes.join(', ') : 'Unknown'}</div>
+            </div>
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Confidence</div>
+                <div class="diagnosis-value">${result.confidence || 0}%</div>
+            </div>
+        `;
+
+        terminalOutput.textContent = 'Analysis complete. Check the AI Diagnosis panel for details.';
     } catch (error) {
+        aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Analysis failed: ${error.message}</div>`;
         terminalOutput.textContent = 'Error: ' + error.message;
+    } finally {
+        analyzeBtn.disabled = false;
     }
 }
 
 // Repair Code
 async function repairCode() {
     const code = window.monacoEditor ? window.monacoEditor.getValue() : '';
-    const errorMessage = document.getElementById('error-message').value;
-    const language = document.getElementById('language').value;
     const terminalOutput = document.getElementById('terminal-output');
     const repairBtn = document.getElementById('repair-btn');
+    const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
 
     if (!code.trim()) {
-        terminalOutput.textContent = 'Error: No source code to repair. Please enter code first.';
+        terminalOutput.textContent = 'Error: No source code to repair.';
         return;
     }
 
     repairBtn.disabled = true;
-    repairBtn.textContent = 'Repairing...';
-    terminalOutput.textContent = 'Generating repair...';
+    aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Generating repair...</div>';
 
     try {
-        const result = await window.api.repairCode({
+        const result = await window.api.generateRepair({
             source_code: code,
-            error_message: errorMessage || 'Unknown error',
-            diagnosis: analysisResult || {},
-            language: language,
-            session_id: currentSessionId,
+            error_message: terminalOutput.textContent || 'No error message',
+            language: 'python',
         });
 
-        let output = `=== Repair Result ===\n`;
-        output += `Source: ${result.source}\n`;
-
-        if (result.warning) {
-            output += `Warning: ${result.warning}\n`;
-        }
+        window.pendingRepair = result;
+        currentAttemptId = result.attempt_id;
 
         if (result.error) {
-            output += `Error: ${result.error}\n`;
-            terminalOutput.textContent = output;
-            repairBtn.disabled = false;
-            repairBtn.textContent = 'Repair';
+            aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Repair failed: ${result.error}</div>`;
+            terminalOutput.textContent = 'Error: ' + result.error;
             return;
         }
 
-        if (result.diff) {
-            output += `\n=== Diff ===\n${result.diff}\n`;
-        }
+        aiDiagnosisContent.innerHTML = `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Repair Source</div>
+                <div class="diagnosis-value ai">${result.source || 'Unknown'}</div>
+            </div>
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Diff</div>
+                <div class="diagnosis-value" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap;">${result.diff || 'No diff available'}</div>
+            </div>
+            <div style="margin-top: 16px; display: flex; gap: 8px;">
+                <button class="success" onclick="applyRepair()" style="flex: 1;">Apply Repair</button>
+                <button class="danger" onclick="rejectRepair()" style="flex: 1;">Reject</button>
+            </div>
+        `;
 
-        if (result.repaired_code && result.repaired_code !== code) {
-            window.pendingRepair = {
-                original: code,
-                repaired: result.repaired_code,
-                diff: result.diff,
-                source: result.source
-            };
-            
-            output += `\n=== Proposed Repair ===\n`;
-            output += result.repaired_code;
-            output += `\n\n---\n`;
-            output += `Click "Apply Repair" to accept this change, or click "Reject" to keep the original code.`;
-            
-            repairBtn.textContent = 'Apply Repair';
-            repairBtn.classList.add('apply-repair-btn');
-            repairBtn.disabled = false;
-            repairBtn.onclick = applyRepair;
-            
-            // Add Reject button
-            const btnContainer = repairBtn.parentElement;
-            if (!document.getElementById('reject-btn')) {
-                const rejectBtn = document.createElement('button');
-                rejectBtn.id = 'reject-btn';
-                rejectBtn.textContent = 'Reject';
-                rejectBtn.style.background = '#EF4444';
-                rejectBtn.onclick = rejectRepair;
-                btnContainer.appendChild(rejectBtn);
-            }
-        } else {
-            output += `\nNo changes were made to the code.`;
-            repairBtn.disabled = false;
-            repairBtn.textContent = 'Repair';
-        }
-
-        terminalOutput.textContent = output;
+        terminalOutput.textContent = 'Repair generated. Review the AI Diagnosis panel and choose to Apply or Reject.';
     } catch (error) {
+        aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Repair failed: ${error.message}</div>`;
         terminalOutput.textContent = 'Error: ' + error.message;
+    } finally {
         repairBtn.disabled = false;
-        repairBtn.textContent = 'Repair';
     }
 }
 
 // Apply Repair
 function applyRepair() {
-    if (window.pendingRepair && window.monacoEditor) {
-        window.monacoEditor.setValue(window.pendingRepair.repaired);
-        window.pendingRepair = null;
-
-        const repairBtn = document.getElementById('repair-btn');
-        repairBtn.textContent = 'Repair';
-        repairBtn.classList.remove('apply-repair-btn');
-        repairBtn.disabled = false;
-        repairBtn.onclick = repairCode;
-
-        // Remove Reject button
-        const rejectBtn = document.getElementById('reject-btn');
-        if (rejectBtn) {
-            rejectBtn.remove();
+    if (window.pendingRepair && window.pendingRepair.repaired_code) {
+        if (window.monacoEditor) {
+            window.monacoEditor.setValue(window.pendingRepair.repaired_code);
         }
-
+        
         const terminalOutput = document.getElementById('terminal-output');
-        terminalOutput.textContent += '\n\n✓ Repair applied successfully! Click "Run Code" to verify.';
+        terminalOutput.textContent = 'Repair applied. Click "Run Code" to verify the fix.';
+        
+        window.pendingRepair = null;
+        
+        // Reset AI panel
+        const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
+        aiDiagnosisContent.innerHTML = `
+            <div class="empty-content">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p style="font-size: 13px;">Repair applied successfully</p>
+            </div>
+        `;
     }
 }
 
@@ -451,20 +740,18 @@ function applyRepair() {
 function rejectRepair() {
     window.pendingRepair = null;
 
-    const repairBtn = document.getElementById('repair-btn');
-    repairBtn.textContent = 'Repair';
-    repairBtn.classList.remove('apply-repair-btn');
-    repairBtn.disabled = false;
-    repairBtn.onclick = repairCode;
-
-    // Remove Reject button
-    const rejectBtn = document.getElementById('reject-btn');
-    if (rejectBtn) {
-        rejectBtn.remove();
-    }
-
     const terminalOutput = document.getElementById('terminal-output');
-    terminalOutput.textContent += '\n\n✗ Repair rejected. Original code preserved.';
+    terminalOutput.textContent = 'Repair rejected. Original code preserved.';
+
+    const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
+    aiDiagnosisContent.innerHTML = `
+        <div class="empty-content">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <p style="font-size: 13px;">Repair rejected</p>
+        </div>
+    `;
 }
 
 // Verify Code
@@ -480,11 +767,10 @@ async function verifyCode() {
     }
 
     verifyBtn.disabled = true;
-    verifyBtn.textContent = 'Verifying...';
+    verifyBtn.innerHTML = '<div class="loading-spinner"></div> Verifying...';
     terminalOutput.textContent = 'Running verification checks...';
 
     try {
-        // Run the code to verify it executes
         const result = await window.api.executeCode({
             source_code: code,
             language: language,
@@ -496,21 +782,21 @@ async function verifyCode() {
         output += `Duration: ${result.duration_ms}ms\n\n`;
 
         if (result.exit_code === 0) {
-            output += `✓ Status: VERIFIED\n`;
-            output += `✓ Code executed successfully\n`;
+            output += `Status: VERIFIED\n`;
+            output += `Code executed successfully\n`;
             if (result.stdout) {
                 output += `\n=== Output ===\n${result.stdout}`;
             }
         } else {
-            output += `✗ Status: FAILED\n`;
-            output += `✗ Code execution failed\n`;
+            output += `Status: FAILED\n`;
+            output += `Code execution failed\n`;
             if (result.stderr) {
                 output += `\n=== Error Output ===\n${result.stderr}`;
             }
         }
 
         if (result.timed_out) {
-            output += `\n⚠ Warning: Execution timed out`;
+            output += `\nWarning: Execution timed out`;
         }
 
         terminalOutput.textContent = output;
@@ -518,21 +804,38 @@ async function verifyCode() {
         terminalOutput.textContent = 'Error: ' + error.message;
     } finally {
         verifyBtn.disabled = false;
-        verifyBtn.textContent = '✓ Verify';
+        verifyBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Verify
+        `;
     }
 }
 
-// Clear Error
-function clearError() {
-    document.getElementById('error-message').value = '';
-}
-
-// Clear Logs
-function clearLogs() {
-    document.getElementById('terminal-logs').value = '';
-    document.getElementById('terminal-output').textContent = 'No output yet. Click "Run Code" to execute.';
+// Open Session
+async function openSession(sessionId) {
+    try {
+        const session = await window.api.getSession(sessionId);
+        currentSessionId = session.id;
+        
+        window.location.hash = '#/workspace';
+        
+        setTimeout(() => {
+            if (window.monacoEditor && session.source_code) {
+                window.monacoEditor.setValue(session.source_code);
+            }
+        }, 200);
+    } catch (error) {
+        alert('Failed to load session: ' + error.message);
+    }
 }
 
 // Initialize
-window.addEventListener('hashchange', handleRoute);
-window.addEventListener('load', handleRoute);
+window.addEventListener('load', () => {
+    handleRoute();
+});
+
+window.addEventListener('hashchange', () => {
+    handleRoute();
+});
