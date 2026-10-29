@@ -11,7 +11,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 try:
-    import google.generativeai as genai
+    from google import genai
     GOOGLE_GENAI_AVAILABLE = True
 except ImportError:
     GOOGLE_GENAI_AVAILABLE = False
@@ -146,8 +146,8 @@ Provide a JSON response with:
             api_key = os.environ.get('GOOGLE_API_KEY')
             model_name = os.environ.get('GEMINI_MODEL', 'gemini-1.5-pro')
             
-            genai.configure(api_key=api_key)
-            client = genai.GenerativeModel(model_name)
+            # Use the new google.genai API with Client
+            client = genai.Client(api_key=api_key)
             
             prompt = f"""Analyze this programming error and provide a diagnosis.
 
@@ -171,7 +171,11 @@ Provide a JSON response with:
 - confidence: Your confidence in this diagnosis (0-100)
 """
 
-            response = await client.generate_content_async(prompt)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            
             content = response.text.strip()
             
             # Remove markdown code blocks if present

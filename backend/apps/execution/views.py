@@ -11,7 +11,7 @@ from apps.dashboard.models import DebuggingSession
 def execute_code(request):
     """Execute Python code securely."""
     data = request.data
-    code = data.get('code', '')
+    code = data.get('code') or data.get('source_code', '')
     timeout = data.get('timeout', None)
     session_id = data.get('session_id')
 

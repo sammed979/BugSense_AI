@@ -162,7 +162,7 @@ async function renderDashboard() {
             <header>
                 <div class="container">
                     <nav>
-                        <div class="logo">BugSense AI</div>
+                        <div class="logo">🔍 BugSense AI</div>
                         <div>
                             <a href="#/dashboard" class="active">Dashboard</a>
                             <a href="#/workspace">Workspace</a>
@@ -172,30 +172,33 @@ async function renderDashboard() {
                 </div>
             </header>
             <div class="container">
-                <h1 style="margin-bottom: 30px;">Dashboard</h1>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;">
-                    <div class="card">
+                <h1>Dashboard</h1>
+                <div class="stats-grid">
+                    <div class="stat-card">
                         <h3>Total Sessions</h3>
-                        <p style="font-size: 36px; color: #58a6ff;">${stats.total_sessions || 0}</p>
+                        <div class="value">${stats.total_sessions || 0}</div>
                     </div>
-                    <div class="card">
+                    <div class="stat-card">
                         <h3>Repairs Attempted</h3>
-                        <p style="font-size: 36px; color: #58a6ff;">${stats.repairs_attempted || 0}</p>
+                        <div class="value">${stats.repairs_attempted || 0}</div>
                     </div>
-                    <div class="card">
+                    <div class="stat-card success">
                         <h3>Verified Repairs</h3>
-                        <p style="font-size: 36px; color: #3fb950;">${stats.verified_repairs || 0}</p>
+                        <div class="value">${stats.verified_repairs || 0}</div>
                     </div>
-                    <div class="card">
+                    <div class="stat-card error">
                         <h3>Failed Verifications</h3>
-                        <p style="font-size: 36px; color: #f85149;">${stats.failed_verifications || 0}</p>
+                        <div class="value">${stats.failed_verifications || 0}</div>
                     </div>
                 </div>
                 <div class="card">
-                    <h3 style="margin-bottom: 15px;">Recent Sessions</h3>
-                    <button onclick="window.location.hash='#/workspace'" style="margin-bottom: 15px;">New Debugging Session</button>
+                    <h3>Recent Sessions</h3>
+                    <button onclick="window.location.hash='#/workspace'" style="margin-bottom: 16px;">New Debugging Session</button>
                     <div id="recent-sessions">
-                        <p>No recent sessions yet. Start a new debugging session!</p>
+                        <div class="empty-state">
+                            <p>No recent sessions yet.</p>
+                            <p>Start a new debugging session to begin!</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -204,7 +207,9 @@ async function renderDashboard() {
         console.error('Failed to load dashboard:', error);
         document.getElementById('app').innerHTML = `
             <div class="container">
-                <p style="color: #f85149;">Failed to load dashboard. Please try again.</p>
+                <div class="error-message">
+                    Failed to load dashboard. Please try again.
+                </div>
             </div>
         `;
     }
@@ -216,7 +221,7 @@ function renderWorkspace() {
         <header>
             <div class="container">
                 <nav>
-                    <div class="logo">BugSense AI</div>
+                    <div class="logo">🔍 BugSense AI</div>
                     <div>
                         <a href="#/dashboard">Dashboard</a>
                         <a href="#/workspace" class="active">Workspace</a>
@@ -226,42 +231,43 @@ function renderWorkspace() {
             </div>
         </header>
         <div class="container">
-            <h1 style="margin-bottom: 20px;">Debugging Workspace</h1>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <h1>Debugging Workspace</h1>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
                 <div>
                     <div class="card">
-                        <h3 style="margin-bottom: 15px;">Diagnostic Inputs</h3>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 5px;">Error Message (Optional)</label>
+                        <h3>Diagnostic Inputs</h3>
+                        <div style="margin-bottom: 16px;">
+                            <label>Error Message (Optional)</label>
                             <textarea id="error-message" rows="4" placeholder="e.g., NameError: name 'total_price' is not defined"></textarea>
                         </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 5px;">Terminal Logs (Optional)</label>
+                        <div style="margin-bottom: 16px;">
+                            <label>Terminal Logs (Optional)</label>
                             <textarea id="terminal-logs" rows="8" placeholder="Paste terminal output here..."></textarea>
                         </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 5px;">Language</label>
+                        <div style="margin-bottom: 16px;">
+                            <label>Language</label>
                             <select id="language">
                                 <option value="python">Python</option>
                             </select>
                         </div>
                     </div>
                     <div class="card">
-                        <h3 style="margin-bottom: 15px;">Terminal</h3>
+                        <h3>Terminal Output</h3>
                         <div id="terminal-output" class="terminal">No output yet. Click "Run Code" to execute.</div>
                     </div>
                 </div>
                 <div>
                     <div class="card">
-                        <h3 style="margin-bottom: 15px;">Source Code</h3>
+                        <h3>Source Code</h3>
                         <div id="monaco-editor-container"></div>
-                        <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button id="run-code-btn" onclick="runCode()">Run Code</button>
-                            <button id="analyze-btn" onclick="analyzeCode()">Analyze</button>
-                            <button id="repair-btn" onclick="repairCode()">Repair</button>
-                            <button onclick="loadExample()">Load Example</button>
-                            <button onclick="clearError()">Clear Error</button>
-                            <button onclick="clearLogs()">Clear Logs</button>
+                        <div style="margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button id="run-code-btn" onclick="runCode()">▶ Run Code</button>
+                            <button id="analyze-btn" onclick="analyzeCode()">🔍 Analyze</button>
+                            <button id="repair-btn" onclick="repairCode()">🔧 Repair</button>
+                            <button id="verify-btn" onclick="verifyCode()">✓ Verify</button>
+                            <button onclick="loadExample()">📄 Load Example</button>
+                            <button onclick="clearError()">✕ Clear Error</button>
+                            <button onclick="clearLogs()">🗑️ Clear Logs</button>
                         </div>
                     </div>
                 </div>
@@ -339,6 +345,11 @@ async function repairCode() {
     const terminalOutput = document.getElementById('terminal-output');
     const repairBtn = document.getElementById('repair-btn');
 
+    if (!code.trim()) {
+        terminalOutput.textContent = 'Error: No source code to repair. Please enter code first.';
+        return;
+    }
+
     repairBtn.disabled = true;
     repairBtn.textContent = 'Repairing...';
     terminalOutput.textContent = 'Generating repair...';
@@ -361,6 +372,10 @@ async function repairCode() {
 
         if (result.error) {
             output += `Error: ${result.error}\n`;
+            terminalOutput.textContent = output;
+            repairBtn.disabled = false;
+            repairBtn.textContent = 'Repair';
+            return;
         }
 
         if (result.diff) {
@@ -368,11 +383,37 @@ async function repairCode() {
         }
 
         if (result.repaired_code && result.repaired_code !== code) {
-            window.pendingRepair = result.repaired_code;
+            window.pendingRepair = {
+                original: code,
+                repaired: result.repaired_code,
+                diff: result.diff,
+                source: result.source
+            };
+            
+            output += `\n=== Proposed Repair ===\n`;
+            output += result.repaired_code;
+            output += `\n\n---\n`;
+            output += `Click "Apply Repair" to accept this change, or click "Reject" to keep the original code.`;
+            
             repairBtn.textContent = 'Apply Repair';
             repairBtn.classList.add('apply-repair-btn');
             repairBtn.disabled = false;
             repairBtn.onclick = applyRepair;
+            
+            // Add Reject button
+            const btnContainer = repairBtn.parentElement;
+            if (!document.getElementById('reject-btn')) {
+                const rejectBtn = document.createElement('button');
+                rejectBtn.id = 'reject-btn';
+                rejectBtn.textContent = 'Reject';
+                rejectBtn.style.background = '#EF4444';
+                rejectBtn.onclick = rejectRepair;
+                btnContainer.appendChild(rejectBtn);
+            }
+        } else {
+            output += `\nNo changes were made to the code.`;
+            repairBtn.disabled = false;
+            repairBtn.textContent = 'Repair';
         }
 
         terminalOutput.textContent = output;
@@ -386,15 +427,98 @@ async function repairCode() {
 // Apply Repair
 function applyRepair() {
     if (window.pendingRepair && window.monacoEditor) {
-        window.monacoEditor.setValue(window.pendingRepair);
+        window.monacoEditor.setValue(window.pendingRepair.repaired);
         window.pendingRepair = null;
 
         const repairBtn = document.getElementById('repair-btn');
         repairBtn.textContent = 'Repair';
         repairBtn.classList.remove('apply-repair-btn');
+        repairBtn.disabled = false;
         repairBtn.onclick = repairCode;
 
-        document.getElementById('terminal-output').textContent += '\n\nRepair applied successfully!';
+        // Remove Reject button
+        const rejectBtn = document.getElementById('reject-btn');
+        if (rejectBtn) {
+            rejectBtn.remove();
+        }
+
+        const terminalOutput = document.getElementById('terminal-output');
+        terminalOutput.textContent += '\n\n✓ Repair applied successfully! Click "Run Code" to verify.';
+    }
+}
+
+// Reject Repair
+function rejectRepair() {
+    window.pendingRepair = null;
+
+    const repairBtn = document.getElementById('repair-btn');
+    repairBtn.textContent = 'Repair';
+    repairBtn.classList.remove('apply-repair-btn');
+    repairBtn.disabled = false;
+    repairBtn.onclick = repairCode;
+
+    // Remove Reject button
+    const rejectBtn = document.getElementById('reject-btn');
+    if (rejectBtn) {
+        rejectBtn.remove();
+    }
+
+    const terminalOutput = document.getElementById('terminal-output');
+    terminalOutput.textContent += '\n\n✗ Repair rejected. Original code preserved.';
+}
+
+// Verify Code
+async function verifyCode() {
+    const code = window.monacoEditor ? window.monacoEditor.getValue() : '';
+    const language = document.getElementById('language').value;
+    const terminalOutput = document.getElementById('terminal-output');
+    const verifyBtn = document.getElementById('verify-btn');
+
+    if (!code.trim()) {
+        terminalOutput.textContent = 'Error: No source code to verify. Please enter code first.';
+        return;
+    }
+
+    verifyBtn.disabled = true;
+    verifyBtn.textContent = 'Verifying...';
+    terminalOutput.textContent = 'Running verification checks...';
+
+    try {
+        // Run the code to verify it executes
+        const result = await window.api.executeCode({
+            source_code: code,
+            language: language,
+            session_id: currentSessionId,
+        });
+
+        let output = `=== Verification Result ===\n`;
+        output += `Exit Code: ${result.exit_code}\n`;
+        output += `Duration: ${result.duration_ms}ms\n\n`;
+
+        if (result.exit_code === 0) {
+            output += `✓ Status: VERIFIED\n`;
+            output += `✓ Code executed successfully\n`;
+            if (result.stdout) {
+                output += `\n=== Output ===\n${result.stdout}`;
+            }
+        } else {
+            output += `✗ Status: FAILED\n`;
+            output += `✗ Code execution failed\n`;
+            if (result.stderr) {
+                output += `\n=== Error Output ===\n${result.stderr}`;
+            }
+        }
+
+        if (result.timed_out) {
+            output += `\n⚠ Warning: Execution timed out`;
+        }
+
+        terminalOutput.textContent = output;
+    } catch (error) {
+        terminalOutput.textContent = 'Error: ' + error.message;
+    } finally {
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = '✓ Verify';
     }
 }
 

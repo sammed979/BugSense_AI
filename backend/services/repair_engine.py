@@ -13,7 +13,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 try:
-    import google.generativeai as genai
+    from google import genai
     GOOGLE_GENAI_AVAILABLE = True
 except ImportError:
     GOOGLE_GENAI_AVAILABLE = False
@@ -196,9 +196,8 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
     ) -> Dict[str, Any]:
         """Generate repair using Google Gemini."""
         try:
-            # Configure API key globally (new API pattern)
-            genai.configure(api_key=api_key)
-            client = genai.GenerativeModel(model)
+            # Use the new google.genai API with Client
+            client = genai.Client(api_key=api_key)
             
             prompt = f"""Fix this programming error.
 
@@ -215,7 +214,10 @@ Source Code:
 
 Provide ONLY the fixed code, no explanations. Output just the corrected source code."""
 
-            response = await client.generate_content_async(prompt)
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt
+            )
             
             # Check if response was blocked or has issues
             if not response or not response.text:
