@@ -95,7 +95,7 @@ class RepairEngine:
         
         # Try Google Gemini as fallback
         google_api_key = os.environ.get('GOOGLE_API_KEY')
-        gemini_model = os.environ.get('GEMINI_MODEL', 'gemini-pro')
+        gemini_model = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
         
         if google_api_key and GOOGLE_GENAI_AVAILABLE:
             print(f"Attempting Gemini repair with model: {gemini_model}")
@@ -243,10 +243,20 @@ Source Code:
 Provide ONLY the fixed code, no explanations. Output just the corrected source code."""
 
             print(f"Gemini: Calling generate_content with model {model}")
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
+            
+            # Try with the models.generate_content method
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+            except Exception as api_error:
+                # If that fails, try the generative model approach
+                print(f"Gemini: generate_content failed, trying alternative: {api_error}")
+                import google.generativeai as genai_legacy
+                genai_legacy.configure(api_key=api_key)
+                model_legacy = genai_legacy.GenerativeModel(model)
+                response = await model_legacy.generate_content_async(prompt)
             
             print(f"Gemini: Response received, has text: {bool(response.text)}")
             
