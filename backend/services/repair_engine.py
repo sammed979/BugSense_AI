@@ -83,7 +83,7 @@ class RepairEngine:
                 print(f"OpenAI result source: {result.get('source')}")
                 if result.get('error'):
                     print(f"OpenAI failed with error: {result.get('error')}, trying Gemini...")
-                    pass
+                    # Don't return error yet, try Gemini
                 else:
                     print(f"OpenAI repair successful")
                     return result
@@ -102,16 +102,34 @@ class RepairEngine:
                 )
                 print(f"Gemini result source: {result.get('source')}")
                 if result.get('error'):
-                    print(f"Gemini failed with error: {result.get('error')}, falling back to heuristic")
+                    print(f"Gemini failed with error: {result.get('error')}")
+                    # Return the error instead of falling back to heuristic
+                    return result
                 else:
                     print(f"Gemini repair successful")
                     return result
             except Exception as e:
-                print(f"Gemini repair failed with exception: {e}, falling back to heuristic")
+                print(f"Gemini repair failed with exception: {e}")
+                return {
+                    'error': f'Gemini API exception: {str(e)}',
+                    'repaired_code': source_code,
+                    'source': 'error'
+                }
         
-        # No AI configured or all failed - return a smart heuristic repair
-        print(f"Both AI services failed or not configured, using heuristic repair")
-        return RepairEngine._generate_heuristic_repair(source_code, error_message, diagnosis)
+        # No AI configured - return error, not heuristic
+        if not openai_api_key and not google_api_key:
+            return {
+                'error': 'No AI provider configured. Please set OPENAI_API_KEY or GOOGLE_API_KEY in environment.',
+                'repaired_code': source_code,
+                'source': 'error'
+            }
+        
+        # Both configured but failed - return last error
+        return {
+            'error': 'All AI providers failed. Check API keys and configuration.',
+            'repaired_code': source_code,
+            'source': 'error'
+        }
 
     @staticmethod
     async def _repair_with_openai(
@@ -219,26 +237,44 @@ Source Code:
 
 Provide ONLY the fixed code, no explanations. Output just the corrected source code."""
 
+            print(f"Gemini: Calling generate_content with model {model}")
             response = client.models.generate_content(
                 model=model,
                 contents=prompt
             )
             
+            print(f"Gemini: Response received, has text: {bool(response.text)}")
+            
             # Check if response was blocked or has issues
             if not response or not response.text:
+                error_msg = 'Gemini returned empty response'
+                if hasattr(response, 'candidates') and response.candidates:
+                    error_msg = f"Gemini response blocked: {response.candidates[0].finish_reason if response.candidates else 'unknown'}"
+                print(f"Gemini error: {error_msg}")
                 return {
-                    'error': 'Gemini returned empty response',
+                    'error': error_msg,
                     'repaired_code': source_code,
                     'source': 'error'
                 }
             
             repaired_code = response.text.strip()
+            print(f"Gemini: Raw response length: {len(repaired_code)}")
             
             # Remove markdown code blocks if present
             if repaired_code.startswith('```'):
                 lines = repaired_code.split('\n')
                 if lines[0].startswith('```'):
                     repaired_code = '\n'.join(lines[1:-1]) if lines[-1] == '```' else '\n'.join(lines[1:])
+            
+            print(f"Gemini: Cleaned response length: {len(repaired_code)}")
+            
+            # Validate that we got actual code, not just an explanation
+            if len(repaired_code) < 10 or not any(char in repaired_code for char in ['=', 'def', 'class', 'if', 'for', 'while', 'return', 'print']):
+                return {
+                    'error': 'Gemini returned non-code response (likely explanation instead of code)',
+                    'repaired_code': source_code,
+                    'source': 'error'
+                }
             
             # If no changes were made, return a warning
             if repaired_code == source_code:
@@ -256,6 +292,8 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
             repaired_hash = RepairEngine.compute_hash(repaired_code)
             diff = RepairEngine.generate_diff(source_code, repaired_code)
             
+            print(f"Gemini: Repair successful, diff length: {len(diff)}")
+            
             return {
                 'original_code': source_code,
                 'repaired_code': repaired_code,
@@ -267,8 +305,14 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
             
         except Exception as e:
             # Fall back to heuristic repair on error
-            print(f"Gemini error: {e}")
-            return RepairEngine._generate_heuristic_repair(source_code, error_message, diagnosis)
+            print(f"Gemini exception: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'error': f'Gemini API error: {str(e)}',
+                'repaired_code': source_code,
+                'source': 'error'
+            }
 
     @staticmethod
     def _generate_heuristic_repair(

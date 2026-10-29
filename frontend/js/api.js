@@ -159,6 +159,14 @@ class APIClient {
         return response.json();
     }
 
+    async repairWithHeuristic(payload) {
+        const response = await this.request('/repair/', {
+            method: 'POST',
+            body: JSON.stringify({ ...payload, use_heuristic: true }),
+        });
+        return response.json();
+    }
+
     async getHistory() {
         const response = await this.request('/history/');
         return response.json();

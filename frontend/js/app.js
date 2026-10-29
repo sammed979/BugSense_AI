@@ -738,8 +738,32 @@ async function repairCode() {
         currentAttemptId = result.attempt_id;
 
         if (result.error) {
-            aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Repair failed: ${result.error}</div>`;
+            aiDiagnosisContent.innerHTML = `
+                <div class="diagnosis-item">
+                    <div class="diagnosis-label">Error</div>
+                    <div class="diagnosis-value text-error">${result.error}</div>
+                </div>
+                <div class="diagnosis-item">
+                    <div class="diagnosis-label">Note</div>
+                    <div class="diagnosis-value text-secondary">AI provider failed. You can try heuristic repair as a fallback.</div>
+                </div>
+                <div style="margin-top: 16px;">
+                    <button class="secondary" onclick="repairWithHeuristic()" style="width: 100%;">Try Heuristic Repair</button>
+                </div>
+            `;
             terminalOutput.textContent = 'Error: ' + result.error;
+            return;
+        }
+
+        // Validate the repair
+        if (!result.repaired_code || result.repaired_code === code) {
+            aiDiagnosisContent.innerHTML = `
+                <div class="diagnosis-item">
+                    <div class="diagnosis-label">Error</div>
+                    <div class="diagnosis-value text-error">Repair did not generate valid code</div>
+                </div>
+            `;
+            terminalOutput.textContent = 'Error: Repair did not generate valid code';
             return;
         }
 
@@ -770,6 +794,73 @@ async function repairCode() {
         terminalOutput.textContent = 'Error: ' + error.message;
     } finally {
         repairBtn.disabled = false;
+    }
+}
+
+// Repair with Heuristic (fallback)
+async function repairWithHeuristic() {
+    const code = window.monacoEditor ? window.monacoEditor.getValue() : '';
+    const terminalOutput = document.getElementById('terminal-output');
+    const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
+
+    if (!code.trim()) {
+        terminalOutput.textContent = 'Error: No source code to repair.';
+        return;
+    }
+
+    aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Generating heuristic repair...</div>';
+
+    try {
+        // Get actual error from terminal if available
+        let actualError = terminalOutput.textContent;
+        if (actualError.includes('Error Output')) {
+            const errorMatch = actualError.match(/=== Error Output ===\n([\s\S]+)/);
+            if (errorMatch) {
+                actualError = errorMatch[1].trim();
+            }
+        }
+
+        const result = await window.api.generateRepair({
+            source_code: code,
+            error_message: actualError || 'No error message',
+            language: 'python',
+            use_heuristic: true,
+        });
+
+        window.pendingRepair = result;
+        currentAttemptId = result.attempt_id;
+
+        if (result.error) {
+            aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Heuristic repair failed: ${result.error}</div>`;
+            terminalOutput.textContent = 'Error: ' + result.error;
+            return;
+        }
+
+        aiDiagnosisContent.innerHTML = `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Repair Source</div>
+                <div class="diagnosis-value ai">${result.source || 'Unknown'}</div>
+            </div>
+            ${result.warning ? `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Note</div>
+                <div class="diagnosis-value text-warning">${result.warning}</div>
+            </div>
+            ` : ''}
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Diff</div>
+                <div class="diagnosis-value" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${result.diff || 'No diff available'}</div>
+            </div>
+            <div style="margin-top: 16px; display: flex; gap: 8px;">
+                <button class="success" onclick="applyRepair()" style="flex: 1;">Apply Repair</button>
+                <button class="danger" onclick="rejectRepair()" style="flex: 1;">Reject</button>
+            </div>
+        `;
+
+        terminalOutput.textContent = 'Heuristic repair generated. Review and choose to Apply or Reject.';
+    } catch (error) {
+        aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Heuristic repair failed: ${error.message}</div>`;
+        terminalOutput.textContent = 'Error: ' + error.message;
     }
 }
 

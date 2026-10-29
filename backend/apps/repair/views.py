@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from services.repair_engine import RepairEngine
+from services.code_analyzer import CodeAnalyzer
 from apps.dashboard.models import DebuggingSession, RepairAttempt
 import asyncio
 import json
@@ -11,7 +12,7 @@ import json
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_repair(request):
-    """Generate and verify a code repair."""
+    """Generate and verify a code repair using AI."""
     data = request.data if isinstance(request.data, dict) else json.loads(request.data) if isinstance(request.data, str) else request.data
 
     source_code = data.get('source_code', '')
@@ -19,6 +20,7 @@ def create_repair(request):
     diagnosis = data.get('diagnosis', {})
     language = data.get('language', 'python')
     session_id = data.get('session_id')
+    use_heuristic = data.get('use_heuristic', False)
 
     if not source_code:
         return Response(
@@ -49,9 +51,18 @@ def create_repair(request):
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        repair_result = loop.run_until_complete(
-            RepairEngine.generate_repair(source_code, error_message, diagnosis, language)
-        )
+        
+        if use_heuristic:
+            # Use heuristic repair explicitly requested
+            from services.code_analyzer import CodeAnalyzer
+            enhanced_diagnosis = CodeAnalyzer.analyze_error_context(source_code, error_message)
+            repair_result = RepairEngine._generate_heuristic_repair(source_code, error_message, enhanced_diagnosis)
+        else:
+            # Use AI repair
+            repair_result = loop.run_until_complete(
+                RepairEngine.generate_repair(source_code, error_message, diagnosis, language)
+            )
+        
         loop.close()
 
         # Save repair attempt to database
@@ -69,6 +80,8 @@ def create_repair(request):
         return Response(repair_result, status=status.HTTP_200_OK)
     
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return Response(
             {'error': f'Repair generation failed: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
