@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="workspace-container">
+    <h1>Debugging Workspace</h1>
+
+    <div class="workspace-grid">
+        <!-- Left Column: Code Editor -->
+        <div class="editor-section">
+            <div class="section-header">
+                <h2>Source Code</h2>
+                <div class="editor-controls">
+                    <select id="language-select">
+                        <option value="python">Python</option>
+                    </select>
+                    <button id="clear-code" class="btn btn-secondary">Clear</button>
+                    <button id="load-example" class="btn btn-secondary">Load Example</button>
+                </div>
+            </div>
+            <div id="monaco-editor" class="monaco-editor"></div>
+        </div>
+
+        <!-- Right Column: Inputs and Terminal -->
+        <div class="inputs-section">
+            <!-- Error Message Input -->
+            <div class="input-section">
+                <div class="section-header">
+                    <h2>Error Message</h2>
+                    <button id="clear-error" class="btn btn-secondary">Clear</button>
+                </div>
+                <textarea id="error-message" placeholder="Paste error message here..."></textarea>
+            </div>
+
+            <!-- Terminal Logs Input -->
+            <div class="input-section">
+                <div class="section-header">
+                    <h2>Terminal Logs</h2>
+                    <button id="clear-logs" class="btn btn-secondary">Clear</button>
+                </div>
+                <textarea id="terminal-logs" placeholder="Paste terminal output or stack trace here..."></textarea>
+            </div>
+
+            <!-- Terminal Output -->
+            <div class="input-section">
+                <div class="section-header">
+                    <h2>Terminal Output</h2>
+                    <button id="clear-output" class="btn btn-secondary">Clear</button>
+                </div>
+                <div id="terminal-output" class="terminal-output">
+                    <pre id="output-content"></pre>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <button id="run-code" class="btn btn-primary">Run Code</button>
+                <button id="analyze-error" class="btn btn-primary">Analyze Error</button>
+                <button id="autofix-verify" class="btn btn-success">AutoFix & Verify</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diagnosis Section -->
+    <div id="diagnosis-section" class="diagnosis-section" style="display: none;">
+        <h2>Diagnosis</h2>
+        <div id="diagnosis-content"></div>
+    </div>
+
+    <!-- Repair Section -->
+    <div id="repair-section" class="repair-section" style="display: none;">
+        <h2>Proposed Repair</h2>
+        <div id="repair-content"></div>
+        <div class="repair-actions">
+            <button id="approve-repair" class="btn btn-success">Approve</button>
+            <button id="reject-repair" class="btn btn-danger">Reject</button>
+            <button id="retry-repair" class="btn btn-secondary">Retry</button>
+        </div>
+    </div>
+
+    <!-- Verification Section -->
+    <div id="verification-section" class="verification-section" style="display: none;">
+        <h2>Verification Results</h2>
+        <div id="verification-content"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/editor/editor.main.css" rel="stylesheet">
+<style>
+.workspace-container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.workspace-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.editor-section,
+.inputs-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.section-header h2 {
+    font-size: 1.25rem;
+    margin: 0;
+}
+
+.editor-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.monaco-editor {
+    height: 400px;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+}
+
+.input-section {
+    background-color: var(--surface-color);
+    padding: 1rem;
+    border-radius: 0.375rem;
+    border: 1px solid var(--border-color);
+}
+
+.input-section textarea {
+    width: 100%;
+    min-height: 100px;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    resize: vertical;
+}
+
+.terminal-output {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    padding: 1rem;
+    border-radius: 0.375rem;
+    min-height: 200px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.terminal-output pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.diagnosis-section,
+.repair-section,
+.verification-section {
+    background-color: var(--surface-color);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+    margin-bottom: 1.5rem;
+}
+
+.repair-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+@media (max-width: 1024px) {
+    .workspace-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+<script src="/static/js/workspace.js"></script>
+<script>
+    initWorkspace();
+</script>
+{% endblock %}

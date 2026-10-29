@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="landing-container">
+    <div class="hero-section">
+        <h1>BugSense AI</h1>
+        <h2>AI-Powered Autonomous Code Debugging</h2>
+        <p class="hero-subtitle">Automatically identify, repair, and verify programming errors with the power of AI.</p>
+
+        <div class="hero-actions">
+            <a href="/auth/register/" class="btn btn-primary btn-large">Get Started</a>
+            <a href="/auth/login/" class="btn btn-secondary btn-large">Login</a>
+        </div>
+    </div>
+
+    <div class="features-section">
+        <h2>Features</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <h3>🔍 Smart Analysis</h3>
+                <p>AI-powered error diagnosis with traceback parsing and static analysis.</p>
+            </div>
+            <div class="feature-card">
+                <h3>🔧 Automatic Repair</h3>
+                <p>Generate candidate patches and verify them with real checks.</p>
+            </div>
+            <div class="feature-card">
+                <h3>✅ Verification</h3>
+                <p>Syntax checks, linting, and test execution to ensure fixes work.</p>
+            </div>
+            <div class="feature-card">
+                <h3>📁 Project Management</h3>
+                <p>Upload and manage multi-file projects with secure execution.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.landing-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.hero-section {
+    padding: 4rem 1rem;
+}
+
+.hero-section h1 {
+    font-size: 3rem;
+    color: var(--primary-color);
+    margin-bottom: 1rem;
+}
+
+.hero-section h2 {
+    font-size: 2rem;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+}
+
+.hero-subtitle {
+    font-size: 1.25rem;
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+}
+
+.hero-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.btn-large {
+    padding: 1rem 2rem;
+    font-size: 1.125rem;
+}
+
+.features-section {
+    padding: 4rem 1rem;
+}
+
+.features-section h2 {
+    font-size: 2rem;
+    margin-bottom: 2rem;
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 2rem;
+}
+
+.feature-card {
+    background-color: var(--surface-color);
+    padding: 2rem;
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+}
+
+.feature-card h3 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.feature-card p {
+    color: var(--text-secondary);
+}
+</style>
+{% endblock %}

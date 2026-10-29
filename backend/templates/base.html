@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BugSense AI - AI-Powered Code Debugging</title>
+    <link rel="stylesheet" href="/static/css/base.css">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <a href="/">BugSense AI</a>
+            </div>
+            <div class="nav-menu">
+                {% if user.is_authenticated %}
+                <a href="/dashboard/">Dashboard</a>
+                <a href="/analysis/workspace/">Workspace</a>
+                <a href="/projects/">Projects</a>
+                <a href="/history/">History</a>
+                <a href="/learning/">Learning</a>
+                <a href="/auth/profile/">Profile</a>
+                <form id="logout-form" method="POST" action="/auth/logout/" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="nav-button">Logout</button>
+                </form>
+                {% else %}
+                <a href="/auth/login/">Login</a>
+                <a href="/auth/register/" class="nav-button">Register</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2024 BugSense AI. AI-Powered Autonomous Code Debugging Platform.</p>
+    </footer>
+
+    <script src="/static/js/api.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

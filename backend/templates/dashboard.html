@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="dashboard-container">
+    <h1>Dashboard</h1>
+    <p class="dashboard-subtitle">Welcome to BugSense AI</p>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Total Analyses</h3>
+            <p class="stat-value" id="total-analyses">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Repair Attempts</h3>
+            <p class="stat-value" id="total-repairs">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Verified Repairs</h3>
+            <p class="stat-value" id="verified-repairs">-</p>
+        </div>
+        <div class="stat-card">
+            <h3>Success Rate</h3>
+            <p class="stat-value" id="success-rate">-</p>
+        </div>
+    </div>
+
+    <div class="recent-section">
+        <h2>Recent Activity</h2>
+        <div id="recent-activity" class="activity-list">
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <div class="quick-actions">
+        <h2>Quick Actions</h2>
+        <div class="action-buttons">
+            <a href="/analysis/workspace/" class="btn btn-primary">Start Debugging</a>
+            <a href="/projects/" class="btn btn-secondary">Manage Projects</a>
+            <a href="/history/" class="btn btn-secondary">View History</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.dashboard-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.dashboard-subtitle {
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    background-color: var(--surface-color);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+}
+
+.stat-card h3 {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.recent-section {
+    margin-bottom: 2rem;
+}
+
+.activity-list {
+    background-color: var(--surface-color);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+}
+
+.quick-actions {
+    background-color: var(--surface-color);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/dashboard.js"></script>
+<script>
+    loadDashboardStats();
+</script>
+{% endblock %}

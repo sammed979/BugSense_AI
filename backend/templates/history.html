@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="history-container">
+    <h1>Repair History</h1>
+
+    <div class="history-filters">
+        <input type="text" id="search-input" placeholder="Search history...">
+        <select id="status-filter">
+            <option value="">All Status</option>
+            <option value="passed">Passed</option>
+            <option value="failed">Failed</option>
+            <option value="pending">Pending</option>
+        </select>
+    </div>
+
+    <div id="history-list" class="history-list">
+        <p>Loading history...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.history-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.history-filters {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.history-filters input,
+.history-filters select {
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+}
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.history-item {
+    background-color: var(--surface-color);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/history.js"></script>
+<script>
+    loadHistory();
+</script>
+{% endblock %}
