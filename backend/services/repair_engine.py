@@ -95,7 +95,7 @@ class RepairEngine:
         
         # Try Google Gemini as fallback
         google_api_key = os.environ.get('GOOGLE_API_KEY')
-        gemini_model = os.environ.get('GEMINI_MODEL', 'gemini-1.0-pro')
+        gemini_model = os.environ.get('GEMINI_MODEL', 'gemini-pro')
         
         if google_api_key and GOOGLE_GENAI_AVAILABLE:
             print(f"Attempting Gemini repair with model: {gemini_model}")

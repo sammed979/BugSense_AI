@@ -363,6 +363,12 @@ function renderWorkspace() {
                                     </svg>
                                     Repair
                                 </button>
+                                <button id="heuristic-repair-btn" onclick="repairWithHeuristic()" class="secondary" style="background: var(--ai-violet); color: white; border-color: var(--ai-violet);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                    Quick Fix
+                                </button>
                                 <button id="verify-btn" onclick="verifyCode()" class="secondary">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -797,18 +803,20 @@ async function repairCode() {
     }
 }
 
-// Repair with Heuristic (fallback)
+// Repair with Heuristic (Quick Fix)
 async function repairWithHeuristic() {
     const code = window.monacoEditor ? window.monacoEditor.getValue() : '';
     const terminalOutput = document.getElementById('terminal-output');
     const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
+    const heuristicBtn = document.getElementById('heuristic-repair-btn');
 
     if (!code.trim()) {
         terminalOutput.textContent = 'Error: No source code to repair.';
         return;
     }
 
-    aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Generating heuristic repair...</div>';
+    heuristicBtn.disabled = true;
+    aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Generating quick fix...</div>';
 
     try {
         // Get actual error from terminal if available
@@ -820,18 +828,17 @@ async function repairWithHeuristic() {
             }
         }
 
-        const result = await window.api.generateRepair({
+        const result = await window.api.repairWithHeuristic({
             source_code: code,
             error_message: actualError || 'No error message',
             language: 'python',
-            use_heuristic: true,
         });
 
         window.pendingRepair = result;
         currentAttemptId = result.attempt_id;
 
         if (result.error) {
-            aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Heuristic repair failed: ${result.error}</div>`;
+            aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Quick fix failed: ${result.error}</div>`;
             terminalOutput.textContent = 'Error: ' + result.error;
             return;
         }
@@ -839,7 +846,7 @@ async function repairWithHeuristic() {
         aiDiagnosisContent.innerHTML = `
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Repair Source</div>
-                <div class="diagnosis-value ai">${result.source || 'Unknown'}</div>
+                <div class="diagnosis-value ai">${result.source || 'Heuristic'}</div>
             </div>
             ${result.warning ? `
             <div class="diagnosis-item">
@@ -852,15 +859,17 @@ async function repairWithHeuristic() {
                 <div class="diagnosis-value" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${result.diff || 'No diff available'}</div>
             </div>
             <div style="margin-top: 16px; display: flex; gap: 8px;">
-                <button class="success" onclick="applyRepair()" style="flex: 1;">Apply Repair</button>
+                <button class="success" onclick="applyRepair()" style="flex: 1;">Apply Fix</button>
                 <button class="danger" onclick="rejectRepair()" style="flex: 1;">Reject</button>
             </div>
         `;
 
-        terminalOutput.textContent = 'Heuristic repair generated. Review and choose to Apply or Reject.';
+        terminalOutput.textContent = 'Quick fix generated. Review and choose to Apply or Reject.';
     } catch (error) {
-        aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Heuristic repair failed: ${error.message}</div>`;
+        aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Quick fix failed: ${error.message}</div>`;
         terminalOutput.textContent = 'Error: ' + error.message;
+    } finally {
+        heuristicBtn.disabled = false;
     }
 }
 

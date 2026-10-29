@@ -483,6 +483,14 @@ button.success:hover:not(:disabled) {
     background: #2DB581;
 }
 
+button.violet {
+    background: var(--ai-violet);
+}
+
+button.violet:hover:not(:disabled) {
+    background: #9671E6;
+}
+
 /* Monaco Editor */
 #monaco-editor-container {
     flex: 1;
