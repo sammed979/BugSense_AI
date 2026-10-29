@@ -53,12 +53,12 @@ def create_repair(request):
         asyncio.set_event_loop(loop)
         
         if use_heuristic:
-            # Use heuristic repair explicitly requested
+            # Use heuristic repair explicitly requested (synchronous, no async needed)
             from services.code_analyzer import CodeAnalyzer
             enhanced_diagnosis = CodeAnalyzer.analyze_error_context(source_code, error_message)
             repair_result = RepairEngine._generate_heuristic_repair(source_code, error_message, enhanced_diagnosis)
         else:
-            # Use AI repair
+            # Use AI repair (async)
             repair_result = loop.run_until_complete(
                 RepairEngine.generate_repair(source_code, error_message, diagnosis, language)
             )

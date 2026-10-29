@@ -815,6 +815,44 @@ async function repairWithHeuristic() {
         return;
     }
 
+    // First run the code to get the actual error if not already present
+    if (!terminalOutput.textContent.includes('Error Output') && !terminalOutput.textContent.includes('FAILED')) {
+        heuristicBtn.disabled = true;
+        aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Running code to detect error...</div>';
+        
+        try {
+            const execResult = await window.api.executeCode({
+                source_code: code,
+                language: 'python',
+            });
+            
+            let output = `=== Execution Result ===\n`;
+            output += `Exit Code: ${execResult.exit_code}\n\n`;
+            
+            if (execResult.exit_code === 0) {
+                output += `Status: SUCCESS\n`;
+                if (execResult.stdout) {
+                    output += `\n=== Output ===\n${execResult.stdout}`;
+                }
+                terminalOutput.textContent = output;
+                aiDiagnosisContent.innerHTML = '<div class="diagnosis-value text-secondary">No error detected. Code executes successfully.</div>';
+                heuristicBtn.disabled = false;
+                return;
+            } else {
+                output += `Status: FAILED\n`;
+                if (execResult.stderr) {
+                    output += `\n=== Error Output ===\n${execResult.stderr}`;
+                }
+                terminalOutput.textContent = output;
+            }
+        } catch (execError) {
+            terminalOutput.textContent = 'Error: Failed to execute code: ' + execError.message;
+            aiDiagnosisContent.innerHTML = '<div class="diagnosis-value text-error">Failed to execute code</div>';
+            heuristicBtn.disabled = false;
+            return;
+        }
+    }
+
     heuristicBtn.disabled = true;
     aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Generating quick fix...</div>';
 
@@ -866,6 +904,7 @@ async function repairWithHeuristic() {
 
         terminalOutput.textContent = 'Quick fix generated. Review and choose to Apply or Reject.';
     } catch (error) {
+        console.error('Quick fix error:', error);
         aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Quick fix failed: ${error.message}</div>`;
         terminalOutput.textContent = 'Error: ' + error.message;
     } finally {
