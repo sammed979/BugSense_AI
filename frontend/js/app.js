@@ -37,7 +37,7 @@ function handleRoute() {
     const hash = window.location.hash || '#/dashboard';
     const app = document.getElementById('app');
 
-    if (!auth.isAuthenticated() && hash !== '#/login' && hash !== '#/register') {
+    if (!window.auth.isAuthenticated() && hash !== '#/login' && hash !== '#/register') {
         window.location.hash = '#/login';
         return;
     }
@@ -90,7 +90,7 @@ function renderLogin() {
         const password = document.getElementById('password').value;
 
         try {
-            await api.login(username, password);
+            await window.api.login(username, password);
             window.location.hash = '#/dashboard';
         } catch (error) {
             alert('Login failed: ' + error.message);
@@ -133,7 +133,7 @@ function renderRegister() {
         const password = document.getElementById('password').value;
 
         try {
-            await api.register(username, email, password);
+            await window.api.register(username, email, password);
             window.location.hash = '#/dashboard';
         } catch (error) {
             alert('Registration failed: ' + error.message);
@@ -144,7 +144,7 @@ function renderRegister() {
 // Render Dashboard
 async function renderDashboard() {
     try {
-        const stats = await api.getDashboardStats();
+        const stats = await window.api.getDashboardStats();
         document.getElementById('app').innerHTML = `
             <header>
                 <div class="container">
@@ -153,7 +153,7 @@ async function renderDashboard() {
                         <div>
                             <a href="#/dashboard" class="active">Dashboard</a>
                             <a href="#/workspace">Workspace</a>
-                            <a href="#" onclick="auth.logout()">Logout</a>
+                            <a href="#" onclick="window.auth.logout()">Logout</a>
                         </div>
                     </nav>
                 </div>
@@ -207,7 +207,7 @@ function renderWorkspace() {
                     <div>
                         <a href="#/dashboard">Dashboard</a>
                         <a href="#/workspace" class="active">Workspace</a>
-                        <a href="#" onclick="auth.logout()">Logout</a>
+                        <a href="#" onclick="window.auth.logout()">Logout</a>
                     </div>
                 </nav>
             </div>
@@ -282,7 +282,7 @@ async function runCode() {
     terminalOutput.textContent = 'Running code...';
 
     try {
-        const result = await api.executeCode({
+        const result = await window.api.executeCode({
             source_code: code,
             language: language,
             session_id: currentSessionId,
@@ -304,7 +304,7 @@ async function analyzeCode() {
     terminalOutput.textContent = 'Analyzing code...';
 
     try {
-        const result = await api.analyzeCode({
+        const result = await window.api.analyzeCode({
             source_code: code,
             error_message: errorMessage || 'Unknown error',
             language: language,
@@ -331,7 +331,7 @@ async function repairCode() {
     terminalOutput.textContent = 'Generating repair...';
 
     try {
-        const result = await api.repairCode({
+        const result = await window.api.repairCode({
             source_code: code,
             error_message: errorMessage || 'Unknown error',
             diagnosis: analysisResult || {},

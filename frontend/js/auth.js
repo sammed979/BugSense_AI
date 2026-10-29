@@ -1,5 +1,5 @@
 // Authentication Module
-const auth = {
+window.auth = {
     // Store tokens in localStorage
     setTokens(accessToken, refreshToken) {
         localStorage.setItem('access_token', accessToken);

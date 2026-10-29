@@ -78,7 +78,7 @@ class APIClient {
                 response = await fetch(url, config);
             } catch (error) {
                 console.error('Token refresh failed:', error);
-                auth.clearTokens();
+                window.auth.clearTokens();
                 window.location.hash = '#/login';
                 throw error;
             } finally {
@@ -101,7 +101,7 @@ class APIClient {
         }
 
         const data = await response.json();
-        auth.setTokens(data.access, data.refresh);
+        window.auth.setTokens(data.access, data.refresh);
         return data;
     }
 
@@ -118,7 +118,7 @@ class APIClient {
         }
 
         const data = await response.json();
-        auth.setTokens(data.access, data.refresh);
+        window.auth.setTokens(data.access, data.refresh);
         return data;
     }
 
@@ -152,4 +152,4 @@ class APIClient {
     }
 }
 
-const api = new APIClient();
+window.api = new APIClient();
