@@ -13,6 +13,9 @@ import json
 @permission_classes([IsAuthenticated])
 def create_repair(request):
     """Generate and verify a code repair using AI."""
+    print(f"=== Repair Request Received ===")
+    print(f"Request data keys: {request.data.keys() if hasattr(request.data, 'keys') else 'not a dict'}")
+    
     data = request.data if isinstance(request.data, dict) else json.loads(request.data) if isinstance(request.data, str) else request.data
 
     source_code = data.get('source_code', '')
@@ -21,6 +24,10 @@ def create_repair(request):
     language = data.get('language', 'python')
     session_id = data.get('session_id')
     use_heuristic = data.get('use_heuristic', False)
+
+    print(f"Source code length: {len(source_code)}")
+    print(f"Error message: {error_message[:100] if error_message else 'None'}")
+    print(f"Use heuristic: {use_heuristic}")
 
     if not source_code:
         return Response(
