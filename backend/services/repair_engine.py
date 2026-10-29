@@ -65,9 +65,14 @@ class RepairEngine:
         print(f"Gemini available: {GOOGLE_GENAI_AVAILABLE}")
         print(f"Gemini API key configured: {bool(os.environ.get('GOOGLE_API_KEY'))}")
         
+        # Enhance diagnosis if not provided
+        if not diagnosis or diagnosis.get('error_category') == 'Unknown':
+            from .code_analyzer import CodeAnalyzer
+            diagnosis = CodeAnalyzer.analyze_error_context(source_code, error_message)
+        
         # Try OpenAI first if configured
         openai_api_key = os.environ.get('OPENAI_API_KEY')
-        openai_model = os.environ.get('OPENAI_MODEL', 'gpt-4')
+        openai_model = os.environ.get('OPENAI_MODEL', 'gpt-4o')
         
         if openai_api_key and OPENAI_AVAILABLE:
             print(f"Attempting OpenAI repair with model: {openai_model}")
@@ -104,7 +109,7 @@ class RepairEngine:
             except Exception as e:
                 print(f"Gemini repair failed with exception: {e}, falling back to heuristic")
         
-        # No AI configured or all failed - return a simple heuristic repair
+        # No AI configured or all failed - return a smart heuristic repair
         print(f"Both AI services failed or not configured, using heuristic repair")
         return RepairEngine._generate_heuristic_repair(source_code, error_message, diagnosis)
 
@@ -271,26 +276,112 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
         error_message: str,
         diagnosis: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Generate a simple heuristic repair for common errors."""
+        """Generate a smart heuristic repair for common errors."""
         repaired_code = source_code
         error_type = diagnosis.get('error_category', error_message)
         
-        # Simple heuristic for NameError
+        import re
+        
+        # Smart heuristic for NameError
         if 'NameError' in str(error_type) or 'NameError' in error_message:
             # Extract undefined variable from error message
-            import re
             match = re.search(r"name '(\w+)' is not defined", error_message)
             if not match:
                 match = re.search(r"(\w+) is not defined", error_message)
             
             if match:
                 var_name = match.group(1)
-                # Add a placeholder definition at the top
                 lines = source_code.split('\n')
-                indent_match = re.match(r'^(\s*)', lines[0]) if lines else None
-                indent = indent_match.group(1) if indent_match else ''
-                lines.insert(0, f"{indent}{var_name} = None  # TODO: define this variable")
+                
+                # Check if there's a function that could define this variable
+                # Pattern: function name contains part of variable name
+                function_names = []
+                for line in lines:
+                    func_match = re.match(r'def\s+(\w+)\s*\(', line)
+                    if func_match:
+                        function_names.append(func_match.group(1))
+                
+                # Try to find a matching function
+                matching_func = None
+                for func_name in function_names:
+                    # Check if variable name contains function name or vice versa
+                    if func_name in var_name or var_name in func_name:
+                        matching_func = func_name
+                        break
+                    # Check common patterns like total_price -> calculate_total
+                    if 'calculate' in func_name and 'total' in var_name.lower():
+                        matching_func = func_name
+                        break
+                    if 'get' in func_name and var_name.startswith(func_name.replace('get', '').lower()):
+                        matching_func = func_name
+                        break
+                
+                if matching_func:
+                    # Add function call with reasonable arguments
+                    # Try to find existing variable definitions for arguments
+                    func_match = re.search(rf'def {re.escape(matching_func)}\s*\(([^)]*)\)', source_code)
+                    if func_match:
+                        args_str = func_match.group(1)
+                        args = [a.strip().split('=')[0].strip() for a in args_str.split(',') if a.strip()]
+                        
+                        # Build call with existing variables or default values
+                        call_args = []
+                        for arg in args:
+                            # Check if this variable is already defined
+                            if any(f'{arg} =' in line for line in lines):
+                                call_args.append(arg)
+                            else:
+                                # Use a reasonable default based on argument name
+                                if 'price' in arg.lower():
+                                    call_args.append('100')
+                                elif 'quantity' in arg.lower() or 'count' in arg.lower():
+                                    call_args.append('5')
+                                elif 'rate' in arg.lower() or 'percent' in arg.lower():
+                                    call_args.append('0.1')
+                                else:
+                                    call_args.append('0')
+                        
+                        call_line = f"{var_name} = {matching_func}({', '.join(call_args)})"
+                        
+                        # Insert before the line that uses the undefined variable
+                        for i, line in enumerate(lines):
+                            if var_name in line and '=' not in line.split(var_name)[0]:
+                                # Found the line using the undefined variable
+                                indent_match = re.match(r'^(\s*)', line)
+                                indent = indent_match.group(1) if indent_match else ''
+                                lines.insert(i, f"{indent}{call_line}")
+                                break
+                        else:
+                            # Insert at the end if we couldn't find the usage line
+                            lines.append(call_line)
+                else:
+                    # No matching function found, add a placeholder with better comment
+                    indent_match = re.match(r'^(\s*)', lines[0]) if lines else None
+                    indent = indent_match.group(1) if indent_match else ''
+                    lines.insert(0, f"{indent}{var_name} = 0  # TODO: Define this variable or call a function to compute it")
+                
                 repaired_code = '\n'.join(lines)
+        
+        # Heuristic for ZeroDivisionError
+        elif 'ZeroDivisionError' in str(error_type) or 'ZeroDivisionError' in error_message:
+            lines = source_code.split('\n')
+            new_lines = []
+            for line in lines:
+                # Add simple check before division
+                if '/' in line and not line.strip().startswith('#'):
+                    # Extract divisor
+                    div_match = re.search(r'/\s*(\w+)', line)
+                    if div_match:
+                        divisor = div_match.group(1)
+                        indent_match = re.match(r'^(\s*)', line)
+                        indent = indent_match.group(1) if indent_match else ''
+                        new_lines.append(f"{indent}if {divisor} != 0:")
+                        new_lines.append(f"{indent}    {line}")
+                        new_lines.append(f"{indent}else:")
+                        new_lines.append(f"{indent}    # Handle division by zero")
+                        continue
+                new_lines.append(line)
+            repaired_code = '\n'.join(new_lines)
         
         original_hash = RepairEngine.compute_hash(source_code)
         repaired_hash = RepairEngine.compute_hash(repaired_code)
@@ -303,5 +394,5 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
             'repaired_hash': repaired_hash,
             'diff': diff,
             'source': 'heuristic',
-            'warning': 'This is a heuristic repair - AI service not configured'
+            'warning': 'This is a heuristic repair - AI service not configured or failed'
         }

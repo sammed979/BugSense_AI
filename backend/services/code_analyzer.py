@@ -74,6 +74,75 @@ class CodeAnalyzer:
         return list(set(undefined))
 
     @staticmethod
+    def analyze_error_context(code: str, error_message: str) -> dict:
+        """Analyze error context to provide better diagnosis."""
+        diagnosis = {
+            'error_category': 'Unknown',
+            'summary': 'No analysis available',
+            'possible_causes': [],
+            'confidence': 0
+        }
+        
+        # Determine error type from message
+        if 'NameError' in error_message:
+            diagnosis['error_category'] = 'NameError'
+            diagnosis['summary'] = 'A variable is used before being defined'
+            diagnosis['possible_causes'] = ['Variable not defined', 'Typo in variable name', 'Variable defined in different scope']
+            diagnosis['confidence'] = 80
+            
+            # Extract undefined variable
+            import re
+            match = re.search(r"name '(\w+)' is not defined", error_message)
+            if match:
+                var_name = match.group(1)
+                diagnosis['undefined_variable'] = var_name
+                
+                # Check if there's a function that could compute this
+                function_names = []
+                try:
+                    tree = ast.parse(code)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.FunctionDef):
+                            function_names.append(node.name)
+                except:
+                    pass
+                
+                if function_names:
+                    diagnosis['available_functions'] = function_names
+                    
+        elif 'ZeroDivisionError' in error_message:
+            diagnosis['error_category'] = 'ZeroDivisionError'
+            diagnosis['summary'] = 'Division by zero occurred'
+            diagnosis['possible_causes'] = ['Divisor is zero', 'Missing zero check before division']
+            diagnosis['confidence'] = 90
+            
+        elif 'TypeError' in error_message:
+            diagnosis['error_category'] = 'TypeError'
+            diagnosis['summary'] = 'Operation applied to incompatible type'
+            diagnosis['possible_causes'] = ['Wrong data type', 'Missing type conversion', 'Incorrect operation for type']
+            diagnosis['confidence'] = 70
+            
+        elif 'SyntaxError' in error_message:
+            diagnosis['error_category'] = 'SyntaxError'
+            diagnosis['summary'] = 'Invalid Python syntax'
+            diagnosis['possible_causes'] = ['Missing colon', 'Unmatched parentheses', 'Incorrect indentation']
+            diagnosis['confidence'] = 95
+            
+        elif 'IndexError' in error_message:
+            diagnosis['error_category'] = 'IndexError'
+            diagnosis['summary'] = 'List index out of range'
+            diagnosis['possible_causes'] = ['Index too large', 'List is empty', 'Negative index on non-supported type']
+            diagnosis['confidence'] = 85
+            
+        elif 'KeyError' in error_message:
+            diagnosis['error_category'] = 'KeyError'
+            diagnosis['summary'] = 'Dictionary key not found'
+            diagnosis['possible_causes'] = ['Key does not exist', 'Case sensitivity issue', 'Using wrong dictionary']
+            diagnosis['confidence'] = 85
+        
+        return diagnosis
+
+    @staticmethod
     def run_ruff(code: str) -> List[LintIssue]:
         """Run Ruff linter on code if available."""
         issues = []

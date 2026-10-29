@@ -638,8 +638,23 @@ async function analyzeCode() {
     aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Analyzing...</div>';
 
     try {
+        // First, try to run the code to get actual error
+        let actualError = '';
+        try {
+            const execResult = await window.api.executeCode({
+                source_code: code,
+                language: 'python',
+            });
+            if (execResult.exit_code !== 0 && execResult.stderr) {
+                actualError = execResult.stderr;
+            }
+        } catch (e) {
+            actualError = 'Execution failed';
+        }
+
         const result = await window.api.analyzeCode({
             source_code: code,
+            error_message: actualError || 'No error message',
             language: 'python',
         });
 
@@ -654,14 +669,28 @@ async function analyzeCode() {
                 <div class="diagnosis-label">Summary</div>
                 <div class="diagnosis-value">${result.summary || 'No summary available'}</div>
             </div>
+            ${result.possible_causes ? `
             <div class="diagnosis-item">
-                <div class="diagnosis-label">Root Cause</div>
-                <div class="diagnosis-value ai">${result.possible_causes ? result.possible_causes.join(', ') : 'Unknown'}</div>
+                <div class="diagnosis-label">Possible Causes</div>
+                <div class="diagnosis-value ai">${Array.isArray(result.possible_causes) ? result.possible_causes.join(', ') : result.possible_causes}</div>
             </div>
+            ` : ''}
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Confidence</div>
                 <div class="diagnosis-value">${result.confidence || 0}%</div>
             </div>
+            ${result.undefined_variable ? `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Undefined Variable</div>
+                <div class="diagnosis-value text-error">${result.undefined_variable}</div>
+            </div>
+            ` : ''}
+            ${result.available_functions ? `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Available Functions</div>
+                <div class="diagnosis-value">${result.available_functions.join(', ')}</div>
+            </div>
+            ` : ''}
         `;
 
         terminalOutput.textContent = 'Analysis complete. Check the AI Diagnosis panel for details.';
@@ -689,9 +718,19 @@ async function repairCode() {
     aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Generating repair...</div>';
 
     try {
+        // Get actual error from terminal if available
+        let actualError = terminalOutput.textContent;
+        // Extract error message if it's in the terminal output
+        if (actualError.includes('Error Output')) {
+            const errorMatch = actualError.match(/=== Error Output ===\n([\s\S]+)/);
+            if (errorMatch) {
+                actualError = errorMatch[1].trim();
+            }
+        }
+
         const result = await window.api.generateRepair({
             source_code: code,
-            error_message: terminalOutput.textContent || 'No error message',
+            error_message: actualError || 'No error message',
             language: 'python',
         });
 
@@ -709,9 +748,15 @@ async function repairCode() {
                 <div class="diagnosis-label">Repair Source</div>
                 <div class="diagnosis-value ai">${result.source || 'Unknown'}</div>
             </div>
+            ${result.warning ? `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Note</div>
+                <div class="diagnosis-value text-warning">${result.warning}</div>
+            </div>
+            ` : ''}
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Diff</div>
-                <div class="diagnosis-value" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap;">${result.diff || 'No diff available'}</div>
+                <div class="diagnosis-value" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${result.diff || 'No diff available'}</div>
             </div>
             <div style="margin-top: 16px; display: flex; gap: 8px;">
                 <button class="success" onclick="applyRepair()" style="flex: 1;">Apply Repair</button>

@@ -760,3 +760,7 @@ label {
 .text-violet {
     color: var(--ai-violet);
 }
+
+.text-warning {
+    color: var(--warning);
+}
