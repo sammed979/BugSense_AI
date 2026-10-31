@@ -8,8 +8,7 @@ class LearningTopicSerializer(serializers.ModelSerializer):
     class Meta:
         model = LearningTopic
         fields = [
-            'id', 'title', 'category', 'description', 'explanation',
-            'buggy_code', 'expected_error', 'corrected_code',
-            'correction_explanation', 'practice_question', 'practice_answer'
+            'id', 'title', 'category', 'error_name', 'technology', 'difficulty',
+            'description', 'explanation', 'buggy_code', 'expected_error', 'practice_question'
         ]
         read_only_fields = ['id']

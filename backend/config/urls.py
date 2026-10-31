@@ -25,7 +25,7 @@ def api_info(request):
             'history': '/api/v1/history/',
             'learning': '/api/v1/learning/',
         },
-        'frontend': 'http://localhost:3000',
+        'frontend': 'http://127.0.0.1:5173',
         'documentation': 'Visit /api/v1/ for available endpoints'
     })
 

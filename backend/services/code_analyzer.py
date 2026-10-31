@@ -2,6 +2,9 @@
 Code Analyzer - Static analysis using Python AST and Ruff.
 """
 import ast
+import builtins
+import json
+import symtable
 import subprocess
 from typing import List
 from dataclasses import dataclass
@@ -42,36 +45,44 @@ class CodeAnalyzer:
 
     @staticmethod
     def extract_undefined_names(code: str) -> List[str]:
-        """Extract potentially undefined names from code using AST."""
-        undefined = []
-        defined = set()
-        builtins = set(__builtins__.keys()) if hasattr(__builtins__, 'keys') else set(dir(__builtins__))
-
+        """Return referenced names that have no binding in their Python scope."""
         try:
-            tree = ast.parse(code)
-        except SyntaxError:
-            return undefined
+            module = symtable.symtable(code, '<user-code>', 'exec')
+        except (SyntaxError, ValueError):
+            return []
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                defined.add(node.id)
-            elif isinstance(node, ast.FunctionDef):
-                defined.add(node.name)
-            elif isinstance(node, ast.ClassDef):
-                defined.add(node.name)
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    defined.add(alias.asname or alias.name.split('.')[0])
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    defined.add(alias.asname or alias.name)
+        builtin_names = set(dir(builtins))
+        module_bindings = {
+            symbol.get_name() for symbol in module.get_symbols()
+            if symbol.is_assigned() or symbol.is_imported() or symbol.is_namespace()
+        }
+        undefined = set()
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-                if node.id not in defined and node.id not in builtins and not node.id.startswith('__'):
-                    undefined.append(node.id)
+        def visit(table, enclosing_bindings=frozenset(), module_scope=False):
+            symbols = table.get_symbols()
+            local_bindings = {
+                symbol.get_name() for symbol in symbols
+                if symbol.is_assigned() or symbol.is_parameter() or symbol.is_imported() or symbol.is_namespace()
+            }
+            visible_enclosing = set(enclosing_bindings)
+            for symbol in symbols:
+                name = symbol.get_name()
+                if not symbol.is_referenced() or name in builtin_names or name.startswith('__'):
+                    continue
+                if module_scope:
+                    if name not in module_bindings:
+                        undefined.add(name)
+                elif symbol.is_global():
+                    if name not in module_bindings:
+                        undefined.add(name)
+                elif symbol.is_free() and name not in visible_enclosing:
+                    undefined.add(name)
 
-        return list(set(undefined))
+            for child in table.get_children():
+                visit(child, visible_enclosing | local_bindings, False)
+
+        visit(module, module_scope=True)
+        return sorted(undefined)
 
     @staticmethod
     def analyze_error_context(code: str, error_message: str) -> dict:
@@ -152,11 +163,10 @@ class CodeAnalyzer:
                 input=code,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=3
             )
 
             if result.stdout:
-                import json
                 ruff_output = json.loads(result.stdout)
                 for item in ruff_output:
                     issues.append(LintIssue(

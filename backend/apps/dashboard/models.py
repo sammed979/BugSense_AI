@@ -15,6 +15,19 @@ class Project(models.Model):
         db_table = 'projects'
 
 
+class ProjectFile(models.Model):
+    """Text source files retained for a user's project explorer."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='files')
+    path = models.CharField(max_length=512)
+    content = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'project_files'
+        constraints = [models.UniqueConstraint(fields=['project', 'path'], name='unique_project_file_path')]
+        ordering = ['path']
+
+
 class DebuggingSession(models.Model):
     """Debugging sessions tracking user interactions."""
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sessions')

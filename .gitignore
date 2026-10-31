@@ -93,7 +93,8 @@ uploads/
 # Django
 media/
 staticfiles/
-static/
+staticfiles/
+backend/staticfiles/
 
 # Backend specific
 backend/db.sqlite3

@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import os
 import shutil
+import sys
 from typing import Tuple
 from django.conf import settings
 
@@ -47,7 +48,7 @@ class PythonRunner:
             start_time = time.time()
 
             process = subprocess.Popen(
-                ["python", code_file],
+                [sys.executable, "-I", code_file],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,

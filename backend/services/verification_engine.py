@@ -22,6 +22,7 @@ class VerificationEngine:
             "lint_check": "NOT_RUN",
             "execution_check": "NOT_RUN",
             "passed": False,
+            "status": "blocked",
         }
 
         # Syntax check
@@ -60,6 +61,7 @@ class VerificationEngine:
                         "stderr": stderr,
                         "duration_ms": round(duration_ms, 2)
                     }
+                    results['status'] = 'passed'
                 else:
                     results["execution_check"] = "FAILED"
                     results["execution_result"] = {
@@ -68,15 +70,18 @@ class VerificationEngine:
                         "stderr": stderr,
                         "duration_ms": round(duration_ms, 2)
                     }
+                    results['status'] = 'timed_out' if 'timed out' in stderr.lower() else 'failed'
             except Exception as e:
                 results["execution_check"] = "ERROR"
-                results["execution_error"] = str(e)
+                results["execution_error"] = 'Isolated execution could not be started.'
+                results['status'] = 'blocked'
         else:
             results["execution_check"] = "SKIPPED"
+            results['status'] = 'blocked'
 
         results["passed"] = (
             results["syntax_check"] == "PASSED" and
-            results["execution_check"] in ["PASSED", "SKIPPED"]
+            results["execution_check"] == "PASSED"
         )
 
         return results

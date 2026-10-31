@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
-from apps.dashboard.models import Project
+from apps.dashboard.models import Project, ProjectFile
 import os
 import zipfile
 import tempfile
@@ -25,6 +25,7 @@ def project_list(request):
                     'source_type': p.source_type,
                     'language': p.language,
                     'created_at': p.created_at.isoformat(),
+                    'file_count': p.files.count(),
                 }
                 for p in projects
             ]
@@ -96,13 +97,16 @@ def upload_project(request):
         
         # Extract ZIP safely
         project_files = []
+        text_files = []
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             # Check for path traversal attacks
             for file_info in zip_ref.infolist():
                 # Resolve the target path to prevent directory traversal
                 resolved_path = (Path(temp_dir) / file_info.filename).resolve()
                 # Ensure the resolved path is within the temp directory
-                if not str(resolved_path).startswith(str(temp_dir)):
+                try:
+                    resolved_path.relative_to(Path(temp_dir).resolve())
+                except ValueError:
                     return Response(
                         {'error': 'Invalid file path detected (possible path traversal)'},
                         status=status.HTTP_400_BAD_REQUEST
@@ -118,7 +122,14 @@ def upload_project(request):
                     rel_path = os.path.relpath(file_path, temp_dir)
                     # Skip the zip file itself
                     if rel_path != 'upload.zip':
-                        project_files.append(rel_path)
+                        if Path(file_path).stat().st_size <= 1_000_000:
+                            try:
+                                content = Path(file_path).read_text(encoding='utf-8')
+                            except (UnicodeDecodeError, OSError):
+                                continue
+                            normalized_path = rel_path.replace('\\', '/')
+                            text_files.append(ProjectFile(path=normalized_path, content=content))
+                            project_files.append(normalized_path)
         
         # Create project
         project_name = uploaded_file.name.replace('.zip', '')
@@ -128,6 +139,9 @@ def upload_project(request):
             source_type='upload',
             language='python'
         )
+        for item in text_files:
+            item.project = project
+        ProjectFile.objects.bulk_create(text_files)
         
         return Response({
             'id': project.id,
@@ -146,7 +160,7 @@ def upload_project(request):
         )
     except Exception as e:
         return Response(
-            {'error': f'Upload failed: {str(e)}'},
+            {'error': 'Project upload could not be completed. Check that the ZIP contains valid files.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     finally:
@@ -175,8 +189,30 @@ def project_detail(request, project_id):
             'language': project.language,
             'created_at': project.created_at.isoformat(),
             'updated_at': project.updated_at.isoformat(),
+            'files': list(project.files.values('path', 'updated_at')),
         })
     
     if request.method == 'DELETE':
         project.delete()
         return Response({'message': 'Project deleted successfully'})
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def project_files(request, project_id):
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+    if request.method == 'GET':
+        files = project.files.all()[:200]
+        return Response({'files': [{'path': item.path, 'content': item.content, 'updated_at': item.updated_at.isoformat()} for item in files]})
+    path = request.data.get('path')
+    content = request.data.get('content')
+    if not isinstance(path, str) or not path or len(path) > 512 or not isinstance(content, str) or len(content.encode('utf-8')) > 1_000_000:
+        return Response({'error': 'Provide a project file path and text content under 1 MB.'}, status=400)
+    normalized = Path(path.replace('\\', '/'))
+    if normalized.is_absolute() or '..' in normalized.parts:
+        return Response({'error': 'Invalid project file path.'}, status=400)
+    item, _created = ProjectFile.objects.update_or_create(project=project, path=normalized.as_posix(), defaults={'content': content})
+    return Response({'path': item.path, 'updated_at': item.updated_at.isoformat()})

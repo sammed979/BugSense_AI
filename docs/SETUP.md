@@ -36,6 +36,9 @@ cp .env.example .env
 Edit `.env` and set at minimum:
 - `DJANGO_SECRET_KEY` - Generate a strong random key
 - `EXECUTION_ENABLED=True` - To enable code execution (optional)
+- `GEMINI_API_KEY` - Optional; keep this key in `backend/.env`, never in frontend files
+- `GEMINI_MODEL` - Defaults to `gemini-2.5-flash`; choose a model enabled for this key
+- `AI_PROVIDER_PRIORITY=gemini` - Selects Gemini as the only default provider
 
 5. **Run database migrations:**
 ```bash
@@ -49,25 +52,32 @@ python manage.py createsuperuser
 
 7. **Start the Django development server:**
 ```bash
-python manage.py runserver
+python manage.py runserver 127.0.0.1:8000
 ```
 
-The backend will be available at `http://localhost:8000`
+The backend will be available at `http://127.0.0.1:8000`. Leave this terminal open while using the frontend.
 
 ### Frontend Setup
 
-The frontend files (HTML, CSS, JavaScript) are already in the `frontend/` directory. Django will serve these as static files once properly configured.
-
-To ensure static files are served correctly, run:
-```bash
-python manage.py collectstatic
+In a second terminal, run the static frontend server:
+```powershell
+cd frontend
+npm run dev
 ```
 
-This will copy static files to the `staticfiles/` directory.
+Then open `http://127.0.0.1:5173`. It uses Node's built-in HTTP server and does not require `npm install`. Keep Django running separately on `127.0.0.1:8000` for the API.
+
+The API URL defaults to the Django server above. To override it, start the Node server with `VITE_API_BASE_URL`, for example in PowerShell:
+
+```powershell
+$env:VITE_API_BASE_URL = "http://127.0.0.1:8000/api/v1"
+npm run dev
+```
 
 ### Access the Application
 
-- **Main Application:** `http://localhost:8000`
+- **Main Application:** `http://localhost:5173`
+- **Backend API:** `http://localhost:8000`
 - **Admin Panel:** `http://localhost:8000/admin`
 - **API Endpoints:** `http://localhost:8000/api/v1/`
 
@@ -116,18 +126,19 @@ Note: Code execution requires `EXECUTION_ENABLED=True` in the backend `.env` fil
 
 ## AI Integration
 
-To enable AI-powered analysis and repair:
+To enable AI-powered analysis and repair, configure credentials only in `backend/.env`:
 
-1. Set AI provider configuration in `.env`:
-```
-AI_PROVIDER=openai
-AI_API_KEY=your-api-key
-AI_MODEL=gpt-4
+```env
+GEMINI_API_KEY=your-google-ai-studio-key
+GEMINI_MODEL=gemini-2.5-flash
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o
+AI_PROVIDER_PRIORITY=gemini
 ```
 
-2. Supported providers:
-- `openai`
-- `anthropic`
+User provider selection is saved through `/api/v1/auth/ai-provider/`. OpenAI is used only when selected or enabled as an explicit Automatic Fallback secondary provider. Keys are never entered in the browser. LogSense pattern explanations work locally; external interpretation requires the workspace consent control and redacts detected credentials before sending.
+
+Provider quotas are controlled by Google/OpenAI. An exhausted quota is returned as a provider error; the app cannot add credits or mark a failed AI operation as successful.
 
 ## Troubleshooting
 
@@ -144,9 +155,9 @@ python manage.py collectstatic
 ```
 
 ### Database Errors
-Delete the database file and run migrations again:
+Do not delete `db.sqlite3` if it contains user data. Back it up, inspect the migration status, and apply additive migrations:
 ```bash
-rm db.sqlite3
+python manage.py showmigrations
 python manage.py migrate
 ```
 
