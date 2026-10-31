@@ -48,6 +48,9 @@ test('Learning Centre is an error-first searchable practice hub with saved progr
   assert.match(appSource,/getLearningRecommendations/);
   assert.match(appSource,/Practise this error/);
   assert.match(appSource,/Reveal next hint/);
+  assert.match(appSource,/activeLessonRequest/);
+  assert.match(appSource,/panel\.scrollIntoView\(\{behavior:'smooth',block:'start'\}\)/);
+  assert.match(appSource,/lesson-retry/);
 });
 
 test('workspace code state reads and updates the textarea fallback', () => {
