@@ -724,14 +724,48 @@ async function repairCode() {
     aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Generating repair...</div>';
 
     try {
-        // Get actual error from terminal if available
-        let actualError = terminalOutput.textContent;
-        // Extract error message if it's in the terminal output
-        if (actualError.includes('Error Output')) {
-            const errorMatch = actualError.match(/=== Error Output ===\n([\s\S]+)/);
-            if (errorMatch) {
-                actualError = errorMatch[1].trim();
+        // First, run the code to get the actual error
+        let actualError = '';
+        let exitCode = 0;
+        
+        try {
+            const execResult = await window.api.executeCode({
+                source_code: code,
+                language: 'python',
+            });
+            exitCode = execResult.exit_code;
+            
+            // Update terminal with execution result
+            let output = `=== Execution Result ===\n`;
+            output += `Exit Code: ${execResult.exit_code}\n\n`;
+            
+            if (execResult.exit_code === 0) {
+                output += `Status: SUCCESS\n`;
+                if (execResult.stdout) {
+                    output += `\n=== Output ===\n${execResult.stdout}`;
+                }
+                terminalOutput.textContent = output;
+                aiDiagnosisContent.innerHTML = '<div class="diagnosis-value text-secondary">No error detected. Code executes successfully.</div>';
+                repairBtn.disabled = false;
+                return;
+            } else {
+                output += `Status: FAILED\n`;
+                if (execResult.stderr) {
+                    output += `\n=== Error Output ===\n${execResult.stderr}`;
+                    actualError = execResult.stderr;
+                }
+                terminalOutput.textContent = output;
             }
+        } catch (e) {
+            actualError = 'Execution failed: ' + e.message;
+            terminalOutput.textContent = actualError;
+        }
+
+        // If no error after execution, show message and return
+        if (!actualError && exitCode === 0) {
+            aiDiagnosisContent.innerHTML = '<div class="diagnosis-value text-secondary">No error detected. Code executes successfully.</div>';
+            repairBtn.disabled = false;
+            return;
         }
 
         console.log('Sending repair request with error:', actualError);

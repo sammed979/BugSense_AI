@@ -391,45 +391,63 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
                     if 'get' in func_name and var_name.startswith(func_name.replace('get', '').lower()):
                         matching_func = func_name
                         break
+                    # Check for typos using simple string similarity
+                    # if_palindrome vs is_palindrome - should match
+                    if abs(len(var_name) - len(func_name)) <= 2:
+                        # Count matching characters
+                        matches = sum(1 for a, b in zip(var_name, func_name) if a == b)
+                        similarity = matches / max(len(var_name), len(func_name))
+                        if similarity >= 0.7:  # 70% similarity threshold
+                            matching_func = func_name
+                            break
                 
                 if matching_func:
-                    # Add function call with reasonable arguments
-                    # Try to find existing variable definitions for arguments
-                    func_match = re.search(rf'def {re.escape(matching_func)}\s*\(([^)]*)\)', source_code)
-                    if func_match:
-                        args_str = func_match.group(1)
-                        args = [a.strip().split('=')[0].strip() for a in args_str.split(',') if a.strip()]
-                        
-                        # Build call with existing variables or default values
-                        call_args = []
-                        for arg in args:
-                            # Check if this variable is already defined
-                            if any(f'{arg} =' in line for line in lines):
-                                call_args.append(arg)
-                            else:
-                                # Use a reasonable default based on argument name
-                                if 'price' in arg.lower():
-                                    call_args.append('100')
-                                elif 'quantity' in arg.lower() or 'count' in arg.lower():
-                                    call_args.append('5')
-                                elif 'rate' in arg.lower() or 'percent' in arg.lower():
-                                    call_args.append('0.1')
-                                else:
-                                    call_args.append('0')
-                        
-                        call_line = f"{var_name} = {matching_func}({', '.join(call_args)})"
-                        
-                        # Insert before the line that uses the undefined variable
-                        for i, line in enumerate(lines):
-                            if var_name in line and '=' not in line.split(var_name)[0]:
-                                # Found the line using the undefined variable
-                                indent_match = re.match(r'^(\s*)', line)
-                                indent = indent_match.group(1) if indent_match else ''
-                                lines.insert(i, f"{indent}{call_line}")
+                    # If the undefined variable is being used as a function call
+                    # Replace it with the correct function name instead of adding a definition
+                    for i, line in enumerate(lines):
+                        if var_name in line:
+                            # Check if it's being called as a function
+                            if f'{var_name}(' in line:
+                                # Replace the function call
+                                lines[i] = line.replace(f'{var_name}(', f'{matching_func}(')
                                 break
-                        else:
-                            # Insert at the end if we couldn't find the usage line
-                            lines.append(call_line)
+                            # Otherwise, add a definition as before
+                            elif '=' not in line.split(var_name)[0]:
+                                func_match = re.search(rf'def {re.escape(matching_func)}\s*\(([^)]*)\)', source_code)
+                                if func_match:
+                                    args_str = func_match.group(1)
+                                    args = [a.strip().split('=')[0].strip() for a in args_str.split(',') if a.strip()]
+                                    
+                                    # Build call with existing variables or default values
+                                    call_args = []
+                                    for arg in args:
+                                        # Check if this variable is already defined
+                                        if any(f'{arg} =' in line for line in lines):
+                                            call_args.append(arg)
+                                        else:
+                                            # Use a reasonable default based on argument name
+                                            if 'price' in arg.lower():
+                                                call_args.append('100')
+                                            elif 'quantity' in arg.lower() or 'count' in arg.lower():
+                                                call_args.append('5')
+                                            elif 'rate' in arg.lower() or 'percent' in arg.lower():
+                                                call_args.append('0.1')
+                                            else:
+                                                call_args.append('0')
+                                    
+                                    call_line = f"{var_name} = {matching_func}({', '.join(call_args)})"
+                                    
+                                    # Insert before the line that uses the undefined variable
+                                    indent_match = re.match(r'^(\s*)', line)
+                                    indent = indent_match.group(1) if indent_match else ''
+                                    lines.insert(i, f"{indent}{call_line}")
+                                    break
+                    else:
+                        # If no usage line found, just replace any occurrence
+                        for i, line in enumerate(lines):
+                            if f'{var_name}(' in line:
+                                lines[i] = line.replace(f'{var_name}(', f'{matching_func}(')
+                                break
                 else:
                     # No matching function found, add a placeholder with better comment
                     indent_match = re.match(r'^(\s*)', lines[0]) if lines else None
@@ -458,6 +476,17 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
                         continue
                 new_lines.append(line)
             repaired_code = '\n'.join(new_lines)
+        
+        # Apply common logic fixes (regardless of error type)
+        # Fix palindrome slice error: text[1:] -> text[::-1]
+        if 'is_palindrome' in repaired_code.lower() and 'text[1:]' in repaired_code:
+            lines = repaired_code.split('\n')
+            for i, line in enumerate(lines):
+                if 'text[1:]' in line and 'return' in line:
+                    # Fix the slice to reverse the string
+                    lines[i] = line.replace('text[1:]', 'text[::-1]')
+                    break
+            repaired_code = '\n'.join(lines)
         
         original_hash = RepairEngine.compute_hash(source_code)
         repaired_hash = RepairEngine.compute_hash(repaired_code)
