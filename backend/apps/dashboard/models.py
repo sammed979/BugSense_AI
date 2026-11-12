@@ -116,3 +116,97 @@ class UserFeedback(models.Model):
     class Meta:
         db_table = 'user_feedback'
 
+
+class ProjectAnalysis(models.Model):
+    """Project-level analysis results."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='analyses')
+    analysis_type = models.CharField(max_length=50)  # 'static', 'ai', 'cross_file'
+    status = models.CharField(max_length=50, default='pending')  # pending, in_progress, completed, failed
+    total_files = models.IntegerField(default=0)
+    analyzed_files = models.IntegerField(default=0)
+    summary = models.JSONField(default=dict)  # languages, frameworks, counts
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'project_analyses'
+        ordering = ['-created_at']
+
+
+class ProjectIssue(models.Model):
+    """Issues found during project analysis."""
+    analysis = models.ForeignKey(ProjectAnalysis, on_delete=models.CASCADE, related_name='issues')
+    issue_id = models.CharField(max_length=100, unique=True)
+    severity = models.CharField(max_length=20)  # critical, high, medium, low, informational
+    category = models.CharField(max_length=100)  # syntax_error, missing_import, type_mismatch, etc.
+    affected_file = models.CharField(max_length=512)
+    line_number = models.IntegerField(null=True, blank=True)
+    line_range_end = models.IntegerField(null=True, blank=True)
+    explanation = models.TextField()
+    supporting_evidence = models.JSONField(default=list)
+    related_files = models.JSONField(default=list)
+    root_cause = models.TextField(null=True, blank=True)
+    suggested_solution = models.TextField()
+    confidence = models.IntegerField(default=0)  # 0-100
+    status = models.CharField(max_length=50, default='pending')  # pending, approved, rejected, applied
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'project_issues'
+        ordering = ['-severity', 'created_at']
+
+
+class FileDependency(models.Model):
+    """Dependencies between project files."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='dependencies')
+    source_file = models.CharField(max_length=512)
+    target_file = models.CharField(max_length=512)
+    dependency_type = models.CharField(max_length=50)  # import, require, template, url, model, etc.
+    line_number = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'file_dependencies'
+        unique_together = [['project', 'source_file', 'target_file', 'dependency_type']]
+
+
+class SuggestedFix(models.Model):
+    """Suggested fixes for project issues."""
+    issue = models.ForeignKey(ProjectIssue, on_delete=models.CASCADE, related_name='suggested_fixes')
+    original_code = models.TextField()
+    suggested_code = models.TextField()
+    explanation = models.TextField()
+    diff_text = models.TextField()
+    requires_approval = models.BooleanField(default=True)
+    status = models.CharField(max_length=50, default='pending')  # pending, approved, rejected, applied
+    approved_at = models.DateTimeField(null=True, blank=True)
+    applied_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'suggested_fixes'
+        ordering = ['-created_at']
+
+
+class AppliedChange(models.Model):
+    """Changes applied to project files."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='applied_changes')
+    issue = models.ForeignKey(ProjectIssue, on_delete=models.CASCADE, related_name='applied_changes', null=True, blank=True)
+    file_path = models.CharField(max_length=512)
+    original_hash = models.CharField(max_length=64)
+    new_hash = models.CharField(max_length=64)
+    diff_text = models.TextField(null=True, blank=True)
+    change_id = models.CharField(max_length=100, unique=True)
+    reason = models.TextField()
+    related_error_id = models.CharField(max_length=100, null=True, blank=True)
+    approved = models.BooleanField(default=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    applied_at = models.DateTimeField(null=True, blank=True)
+    rolled_back_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'applied_changes'
+        ordering = ['-created_at']
+

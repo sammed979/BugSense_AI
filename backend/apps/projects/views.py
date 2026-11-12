@@ -2,13 +2,19 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.views import APIView
 from django.conf import settings
-from apps.dashboard.models import Project, ProjectFile
+from apps.dashboard.models import Project, ProjectFile, ProjectAnalysis, ProjectIssue
+from .serializers import ProjectSerializer, ProjectFileSerializer, ProjectAnalysisSerializer, ProjectIssueSerializer
 import os
 import zipfile
 import tempfile
 import shutil
 from pathlib import Path
+from services.project_upload_service import ProjectUploadService, FileValidationError, ZipExtractionError
+from services.project_discovery_service import ProjectDiscoveryService
+from services.static_analysis_service import StaticAnalysisService
 
 
 @api_view(['GET', 'POST'])
@@ -61,88 +67,104 @@ def project_list(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def upload_project(request):
-    """Upload a ZIP archive containing project files."""
+    """Upload a ZIP archive containing project files using secure extraction."""
     if 'file' not in request.FILES:
         return Response(
             {'error': 'No file provided'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     uploaded_file = request.FILES['file']
-    
+
     # Validate file type
     if not uploaded_file.name.endswith('.zip'):
         return Response(
             {'error': 'Only ZIP files are supported'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
-    # Validate file size (max 10MB)
-    max_size = 10 * 1024 * 1024
-    if uploaded_file.size > max_size:
-        return Response(
-            {'error': 'File size exceeds 10MB limit'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
+
     # Create temporary directory for extraction
     temp_dir = tempfile.mkdtemp(prefix='bugsense_upload_')
-    
+    zip_path = os.path.join(temp_dir, 'upload.zip')
+
     try:
         # Save uploaded file
-        zip_path = os.path.join(temp_dir, 'upload.zip')
         with open(zip_path, 'wb') as f:
             for chunk in uploaded_file.chunks():
                 f.write(chunk)
-        
-        # Extract ZIP safely
-        project_files = []
-        text_files = []
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            # Check for path traversal attacks
-            for file_info in zip_ref.infolist():
-                # Resolve the target path to prevent directory traversal
-                resolved_path = (Path(temp_dir) / file_info.filename).resolve()
-                # Ensure the resolved path is within the temp directory
-                try:
-                    resolved_path.relative_to(Path(temp_dir).resolve())
-                except ValueError:
-                    return Response(
-                        {'error': 'Invalid file path detected (possible path traversal)'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            
-            # Extract files
-            zip_ref.extractall(temp_dir)
-            
-            # List extracted files
-            for root, dirs, files in os.walk(temp_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(file_path, temp_dir)
-                    # Skip the zip file itself
-                    if rel_path != 'upload.zip':
-                        if Path(file_path).stat().st_size <= 1_000_000:
-                            try:
-                                content = Path(file_path).read_text(encoding='utf-8')
-                            except (UnicodeDecodeError, OSError):
-                                continue
-                            normalized_path = rel_path.replace('\\', '/')
-                            text_files.append(ProjectFile(path=normalized_path, content=content))
-                            project_files.append(normalized_path)
-        
+
+        # Initialize secure upload service
+        workspace_base = os.path.join(settings.MEDIA_ROOT, 'project_workspaces')
+        upload_service = ProjectUploadService(workspace_base)
+
+        # Extract ZIP securely
+        extracted_files, file_count, total_size = upload_service.extract_zip(
+            zip_path,
+            temp_dir
+        )
+
+        if file_count == 0:
+            return Response(
+                {'error': 'No valid text files found in ZIP'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Create project
         project_name = uploaded_file.name.replace('.zip', '')
         project = Project.objects.create(
             user=request.user,
             name=project_name,
             source_type='upload',
-            language='python'
+            language='python'  # Will be updated by discovery
         )
-        for item in text_files:
-            item.project = project
-        ProjectFile.objects.bulk_create(text_files)
-        
+
+        # Create workspace
+        workspace_dir = upload_service.create_project_workspace(project.id)
+
+        # Copy extracted files to workspace and store in database
+        project_files = []
+        for file_info in extracted_files:
+            source_path = Path(temp_dir) / file_info['path']
+            workspace_path = workspace_dir / file_info['path']
+            workspace_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, workspace_path)
+
+            # Store in database
+            try:
+                content = source_path.read_text(encoding='utf-8')
+                project_file = ProjectFile.objects.create(
+                    project=project,
+                    path=file_info['path'],
+                    content=content
+                )
+                project_files.append(file_info['path'])
+            except Exception:
+                continue
+
+        # Run project discovery
+        discovery_service = ProjectDiscoveryService(str(workspace_dir))
+        analysis = discovery_service.scan_project()
+
+        # Update project with discovered information
+        if analysis.get('languages'):
+            project.language = analysis['languages'][0] if analysis['languages'] else 'python'
+            project.save()
+
+        # Create initial project analysis record
+        project_analysis = ProjectAnalysis.objects.create(
+            project=project,
+            analysis_type='static',
+            status='completed',
+            total_files=analysis.get('total_files', 0),
+            analyzed_files=analysis.get('total_files', 0),
+            summary={
+                'languages': analysis.get('languages', []),
+                'frameworks': analysis.get('frameworks', []),
+                'file_counts': analysis.get('file_counts', {}),
+                'file_categories': {k: len(v) for k, v in analysis.get('file_categories', {}).items()},
+            }
+        )
+
         return Response({
             'id': project.id,
             'name': project.name,
@@ -150,17 +172,23 @@ def upload_project(request):
             'language': project.language,
             'files': project_files,
             'file_count': len(project_files),
+            'analysis': {
+                'languages': analysis.get('languages', []),
+                'frameworks': analysis.get('frameworks', []),
+                'total_files': analysis.get('total_files', 0),
+                'file_counts': analysis.get('file_counts', {}),
+            },
             'created_at': project.created_at.isoformat(),
         }, status=status.HTTP_201_CREATED)
-    
-    except zipfile.BadZipFile:
+
+    except ZipExtractionError as e:
         return Response(
-            {'error': 'Invalid ZIP file'},
+            {'error': f'ZIP extraction error: {str(e)}'},
             status=status.HTTP_400_BAD_REQUEST
         )
     except Exception as e:
         return Response(
-            {'error': 'Project upload could not be completed. Check that the ZIP contains valid files.'},
+            {'error': f'Project upload failed: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     finally:
@@ -216,3 +244,294 @@ def project_files(request, project_id):
         return Response({'error': 'Invalid project file path.'}, status=400)
     item, _created = ProjectFile.objects.update_or_create(project=project, path=normalized.as_posix(), defaults={'content': content})
     return Response({'path': item.path, 'updated_at': item.updated_at.isoformat()})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_single_file(request):
+    """Upload a single source file to a project."""
+    project_id = request.data.get('project_id')
+    if 'file' not in request.FILES:
+        return Response(
+            {'error': 'No file provided'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    uploaded_file = request.FILES['file']
+
+    try:
+        if project_id:
+            project = Project.objects.get(id=project_id, user=request.user)
+        else:
+            # Create new project
+            project_name = Path(uploaded_file.name).stem
+            project = Project.objects.create(
+                user=request.user,
+                name=project_name,
+                source_type='upload',
+                language='python'
+            )
+
+        # Initialize upload service
+        workspace_base = os.path.join(settings.MEDIA_ROOT, 'project_workspaces')
+        upload_service = ProjectUploadService(workspace_base)
+
+        # Create workspace if needed
+        workspace_dir = upload_service.create_project_workspace(project.id)
+
+        # Process file
+        temp_path = os.path.join(tempfile.gettempdir(), uploaded_file.name)
+        with open(temp_path, 'wb') as f:
+            for chunk in uploaded_file.chunks():
+                f.write(chunk)
+
+        try:
+            file_info = upload_service.process_single_file(temp_path, uploaded_file.name)
+
+            # Save to workspace
+            workspace_path = workspace_dir / file_info['path']
+            workspace_path.parent.mkdir(parents=True, exist_ok=True)
+            workspace_path.write_text(file_info['content'], encoding='utf-8')
+
+            # Store in database
+            project_file, created = ProjectFile.objects.update_or_create(
+                project=project,
+                path=file_info['path'],
+                defaults={'content': file_info['content']}
+            )
+
+            return Response({
+                'id': project.id,
+                'name': project.name,
+                'file': {
+                    'path': project_file.path,
+                    'size': file_info['size'],
+                },
+                'created': created,
+            }, status=status.HTTP_201_CREATED)
+
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    except Project.DoesNotExist:
+        return Response(
+            {'error': 'Project not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except FileValidationError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'File upload failed: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_multiple_files(request):
+    """Upload multiple source files to a project."""
+    project_id = request.data.get('project_id')
+
+    if 'files' not in request.FILES:
+        return Response(
+            {'error': 'No files provided'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    uploaded_files = request.FILES.getlist('files')
+
+    try:
+        if project_id:
+            project = Project.objects.get(id=project_id, user=request.user)
+        else:
+            # Create new project
+            project = Project.objects.create(
+                user=request.user,
+                name='Uploaded Project',
+                source_type='upload',
+                language='python'
+            )
+
+        # Initialize upload service
+        workspace_base = os.path.join(settings.MEDIA_ROOT, 'project_workspaces')
+        upload_service = ProjectUploadService(workspace_base)
+        workspace_dir = upload_service.create_project_workspace(project.id)
+
+        uploaded = []
+        errors = []
+
+        for uploaded_file in uploaded_files:
+            temp_path = os.path.join(tempfile.gettempdir(), f"temp_{uploaded_file.name}")
+            try:
+                with open(temp_path, 'wb') as f:
+                    for chunk in uploaded_file.chunks():
+                        f.write(chunk)
+
+                file_info = upload_service.process_single_file(temp_path, uploaded_file.name)
+
+                # Save to workspace
+                workspace_path = workspace_dir / file_info['path']
+                workspace_path.parent.mkdir(parents=True, exist_ok=True)
+                workspace_path.write_text(file_info['content'], encoding='utf-8')
+
+                # Store in database
+                project_file, created = ProjectFile.objects.update_or_create(
+                    project=project,
+                    path=file_info['path'],
+                    defaults={'content': file_info['content']}
+                )
+
+                uploaded.append({
+                    'path': project_file.path,
+                    'size': file_info['size'],
+                    'created': created,
+                })
+
+            except FileValidationError as e:
+                errors.append({'file': uploaded_file.name, 'error': str(e)})
+            except Exception as e:
+                errors.append({'file': uploaded_file.name, 'error': str(e)})
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+        return Response({
+            'id': project.id,
+            'name': project.name,
+            'uploaded': uploaded,
+            'errors': errors,
+            'total_uploaded': len(uploaded),
+            'total_errors': len(errors),
+        })
+
+    except Project.DoesNotExist:
+        return Response(
+            {'error': 'Project not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Multiple file upload failed: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def project_analysis(request, project_id):
+    """Get project analysis results."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    analyses = project.analyses.all().order_by('-created_at')
+    return Response({
+        'analyses': [ProjectAnalysisSerializer(a).data for a in analyses]
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def project_issues(request, project_id):
+    """Get issues found in project analysis."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    # Get latest analysis
+    latest_analysis = project.analyses.first()
+    if not latest_analysis:
+        return Response({'issues': []})
+
+    issues = latest_analysis.issues.all()
+    return Response({
+        'issues': [ProjectIssueSerializer(i).data for i in issues]
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def run_static_analysis(request, project_id):
+    """Run static analysis on a project."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    # Get all project files
+    project_files = project.files.all()
+    files_dict = {pf.path: pf.content for pf in project_files}
+
+    if not files_dict:
+        return Response(
+            {'error': 'No files to analyze'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Run static analysis
+    analyzer = StaticAnalysisService(files_dict)
+    analysis_result = analyzer.analyze_project()
+
+    # Create analysis record
+    project_analysis = ProjectAnalysis.objects.create(
+        project=project,
+        analysis_type='static',
+        status='completed',
+        total_files=len(files_dict),
+        analyzed_files=len(files_dict),
+        summary={
+            'total_issues': analysis_result['total_issues'],
+            'issues_by_severity': analysis_result['issues_by_severity'],
+            'issues_by_category': analysis_result['issues_by_category'],
+        }
+    )
+
+    # Create issue records
+    issues_created = 0
+    for file_path, issues in analysis_result['file_analyses'].items():
+        for issue in issues:
+            ProjectIssue.objects.create(
+                analysis=project_analysis,
+                issue_id=f"{project_id}_{file_path}_{issue.get('line_number', 0)}_{issues_created}",
+                severity=issue.get('severity', 'medium'),
+                category=issue.get('category', 'unknown'),
+                affected_file=issue.get('affected_file', file_path),
+                line_number=issue.get('line_number'),
+                explanation=issue.get('explanation', ''),
+                supporting_evidence=[],
+                related_files=[],
+                suggested_solution=issue.get('explanation', ''),  # For now, use explanation as solution
+                confidence=issue.get('confidence', 50),
+            )
+            issues_created += 1
+
+    # Add cross-file issues
+    for issue in analysis_result['cross_file_issues']:
+        ProjectIssue.objects.create(
+            analysis=project_analysis,
+            issue_id=f"{project_id}_crossfile_{issues_created}",
+            severity=issue.get('severity', 'medium'),
+            category=issue.get('category', 'unknown'),
+            affected_file=issue.get('affected_file', ''),
+            explanation=issue.get('explanation', ''),
+            supporting_evidence=[],
+            related_files=[],
+            suggested_solution=issue.get('explanation', ''),
+            confidence=issue.get('confidence', 50),
+        )
+        issues_created += 1
+
+    return Response({
+        'analysis_id': project_analysis.id,
+        'total_issues': analysis_result['total_issues'],
+        'issues_by_severity': analysis_result['issues_by_severity'],
+        'issues_by_category': analysis_result['issues_by_category'],
+        'analyzed_files': len(files_dict),
+    })
