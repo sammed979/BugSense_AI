@@ -529,7 +529,7 @@ function renderWorkspace() {
             </div>
             <div class="content-area" style="padding: 16px;">
                 <div class="privacy-consent">
-                    <label><input id="ai-share-consent" type="checkbox"> Allow the selected external AI provider to process this source code</label>
+                    <label><input id="ai-share-consent" type="checkbox" checked> Allow the selected external AI provider to process this source code</label>
                     <span>Source code is sent only after you enable this option. Quick Fix runs locally.</span>
                 </div>
                 <div class="workspace-layout">
