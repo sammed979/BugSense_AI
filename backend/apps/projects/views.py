@@ -17,6 +17,7 @@ from services.project_upload_service import ProjectUploadService, FileValidation
 from services.project_discovery_service import ProjectDiscoveryService
 from services.static_analysis_service import StaticAnalysisService
 from services.project_ai_service import ProjectAIService
+from services.analysis_cache import get_analysis_cache
 
 
 @api_view(['GET', 'POST'])
@@ -477,6 +478,21 @@ def run_static_analysis(request, project_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Check cache
+    cache_key = f"static_analysis_{project_id}_{len(files_dict)}"
+    cache = get_analysis_cache()
+    cached_result = cache.get(cache_key)
+
+    if cached_result and not request.data.get('force_refresh', False):
+        return Response({
+            'analysis_id': cached_result['analysis_id'],
+            'total_issues': cached_result['total_issues'],
+            'issues_by_severity': cached_result['issues_by_severity'],
+            'issues_by_category': cached_result['issues_by_category'],
+            'analyzed_files': len(files_dict),
+            'cached': True,
+        })
+
     # Run static analysis
     analyzer = StaticAnalysisService(files_dict)
     analysis_result = analyzer.analyze_project()
@@ -530,12 +546,21 @@ def run_static_analysis(request, project_id):
         )
         issues_created += 1
 
+    # Cache the result
+    cache.set(cache_key, {
+        'analysis_id': project_analysis.id,
+        'total_issues': analysis_result['total_issues'],
+        'issues_by_severity': analysis_result['issues_by_severity'],
+        'issues_by_category': analysis_result['issues_by_category'],
+    }, ttl=1800)  # 30 minutes
+
     return Response({
         'analysis_id': project_analysis.id,
         'total_issues': analysis_result['total_issues'],
         'issues_by_severity': analysis_result['issues_by_severity'],
         'issues_by_category': analysis_result['issues_by_category'],
         'analyzed_files': len(files_dict),
+        'cached': False,
     })
 
 
