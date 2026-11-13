@@ -12,11 +12,27 @@ services:
       - key: DJANGO_ALLOWED_HOSTS
         value: "*.onrender.com"
       - key: DATABASE_ENGINE
-        value: "mongodb"
-      - key: MONGO_URI
-        sync: false
-      - key: MONGO_DB_NAME
-        value: "bugsense"
+        value: "postgresql"
+      - key: DB_NAME
+        fromDatabase:
+          name: bugsense-db
+          property: databaseName
+      - key: DB_USER
+        fromDatabase:
+          name: bugsense-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: bugsense-db
+          property: password
+      - key: DB_HOST
+        fromDatabase:
+          name: bugsense-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: bugsense-db
+          property: port
       - key: FRONTEND_URL
         sync: false
       - key: CORS_ALLOWED_ORIGINS
@@ -43,3 +59,8 @@ services:
         value: "gpt-4o"
       - key: AI_PROVIDER_PRIORITY
         value: "gemini,openai,heuristic"
+
+databases:
+  - name: bugsense-db
+    databaseName: bugsense
+    user: bugsense

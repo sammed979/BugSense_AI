@@ -89,19 +89,8 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Default to SQLite for local development
 database_engine = os.environ.get('DATABASE_ENGINE', 'sqlite')
 
-if database_engine == 'mongodb':
-    # MongoDB configuration for production (Render + MongoDB Atlas)
-    DATABASES = {
-        'default': {
-            'ENGINE': 'djongo',
-            'NAME': os.environ.get('MONGO_DB_NAME', 'bugsense'),
-            'CLIENT': {
-                'host': os.environ.get('MONGO_URI', 'mongodb://localhost:27017/bugsense'),
-            }
-        }
-    }
-elif database_engine == 'postgresql':
-    # PostgreSQL configuration for production
+if database_engine == 'postgresql':
+    # PostgreSQL configuration for production (Render PostgreSQL)
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',

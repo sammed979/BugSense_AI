@@ -3,14 +3,15 @@
 This guide explains how to deploy BugSense AI to production using:
 - **Vercel** for the frontend
 - **Render** for the Django backend
-- **MongoDB Atlas** for the database
+- **PostgreSQL** for the database (Render PostgreSQL)
+
+> **Note**: This guide uses PostgreSQL instead of MongoDB because the MongoDB adapter (djongo) is incompatible with Django 5.x. PostgreSQL is better maintained and production-ready.
 
 ## Prerequisites
 
 1. A GitHub repository with your BugSense AI code
-2. MongoDB Atlas account (free tier available)
-3. Render account (free tier available)
-4. Vercel account (free tier available)
+2. Render account (free tier available)
+3. Vercel account (free tier available)
 
 ## Architecture
 
@@ -29,40 +30,30 @@ This guide explains how to deploy BugSense AI to production using:
 │   (Django)      │
 └────────┬────────┘
          │
-         │ MongoDB
+         │ PostgreSQL
          │
 ┌────────▼────────┐
-│   MongoDB Atlas │
+│   Render        │
+│   PostgreSQL    │
 │   Database      │
 └─────────────────┘
 ```
 
-## Step 1: Set Up MongoDB Atlas
+## Step 1: Set Up PostgreSQL on Render
 
-1. Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
-2. Create a free account (if you don't have one)
-3. Create a new cluster:
-   - Select "Free" tier
-   - Choose a region close to your users
-   - Click "Create Cluster"
-4. Create a database user:
-   - Go to "Database Access"
-   - Click "Create New User"
-   - Set username and password (save these!)
-   - Set "Built-in Role" to "Read and write to any database"
-5. Configure network access:
-   - Go to "Network Access"
-   - Click "Add IP Address"
-   - Select "Allow Access from Anywhere" (0.0.0.0/0)
-6. Get your connection string:
-   - Go to "Database" → "Connect"
-   - Select "Connect your application"
-   - Copy the connection string (save this!)
+1. Go to [Render](https://render.com)
+2. Click "New" → "PostgreSQL"
+3. Configure the database:
+   - **Name**: `bugsense-db`
+   - **Database**: `bugsense`
+   - **User**: `bugsense`
+   - **Region**: Select a region close to your users
+   - **Plan**: Select "Free" (recommended for development)
+4. Click "Create Database"
+5. Wait for the database to be created (1-2 minutes)
+6. The database will be automatically connected to your backend service via `render.yaml`
 
-Your connection string will look like:
-```
-mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/bugsense?retryWrites=true&w=majority
-```
+**Note**: Render will automatically inject the database credentials as environment variables when you deploy the backend service.
 
 ## Step 2: Deploy Backend to Render
 
@@ -73,17 +64,18 @@ mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/bugsense?retryWrites=
 5. Configure the web service:
    - **Name**: `bugsense-ai-backend`
    - **Branch**: `master`
-   - **Root Directory**: `backend`
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120`
-6. Add environment variables (click "Advanced" → "Add Environment Variable"):
+   - **Root Directory**: (leave empty - render.yaml handles this)
+   - **Runtime**: Python 3
+6. The `render.yaml` file will automatically configure:
+   - Build command: `pip install -r requirements.txt`
+   - Start command: `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120`
+   - Automatic PostgreSQL connection via `fromDatabase` variables
+7. Add additional environment variables (click "Advanced" → "Add Environment Variable"):
    ```
    DJANGO_SECRET_KEY=<generate-a-random-key>
    DJANGO_DEBUG=False
    DJANGO_ALLOWED_HOSTS=*.onrender.com
-   DATABASE_ENGINE=mongodb
-   MONGO_URI=<your-mongodb-connection-string>
-   MONGO_DB_NAME=bugsense
+   DATABASE_ENGINE=postgresql
    FRONTEND_URL=https://your-frontend-url.vercel.app
    CORS_ALLOWED_ORIGINS=https://your-frontend-url.vercel.app
    CORS_ALLOW_ALL_ORIGINS=False
@@ -98,15 +90,11 @@ mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/bugsense?retryWrites=
    OPENAI_MODEL=gpt-4o
    AI_PROVIDER_PRIORITY=gemini,openai,heuristic
    ```
-7. Click "Create Web Service"
-8. Wait for deployment (first deployment takes ~5-10 minutes)
-9. Copy your backend URL (e.g., `https://bugsense-ai-backend.onrender.com`)
+8. Click "Create Web Service"
+9. Wait for deployment (first deployment takes ~5-10 minutes)
+10. Copy your backend URL (e.g., `https://bugsense-ai-backend.onrender.com`)
 
-**Important**: Run migrations after first deployment:
-- Go to Render dashboard
-- Click "Manual Deploy" → "Deploy latest commit"
-- Add to "Build Command": `pip install -r requirements.txt && python manage.py migrate`
-- Or use Render shell to run migrations
+**Note**: PostgreSQL credentials are automatically injected by Render from the database you created in Step 1.
 
 ## Step 3: Deploy Frontend to Vercel
 
@@ -149,25 +137,27 @@ Option 2: Update in code
 3. Commit and push to GitHub
 4. Vercel will auto-deploy
 
-## Step 6: Run Migrations
+## Step 3: Run Migrations
 
-Since you're using MongoDB with Djongo, migrations work differently:
+Since we're using PostgreSQL, migrations work the same as local development:
 
-1. **For local development** (SQLite):
+1. Go to Render dashboard
+2. Click your backend service
+3. Click "Shell" (top right)
+4. Run:
    ```bash
-   cd backend
    python manage.py migrate
    ```
+5. Exit the shell
+6. This will create all database tables in PostgreSQL
 
-2. **For production** (MongoDB):
-   - Djongo automatically creates collections
-   - No traditional migrations needed
-   - Models are mapped to MongoDB collections automatically
-
-However, if you have existing SQLite data:
-1. Export your SQLite data
-2. Import to MongoDB (optional, for production use)
-3. Or start fresh with MongoDB
+Alternatively, you can add migrations to the build command:
+1. Go to your service → "Settings"
+2. Change Build Command to:
+   ```
+   pip install -r requirements.txt && python manage.py migrate
+   ```
+3. Trigger a new deployment
 
 ## Environment Variables Reference
 
@@ -178,9 +168,12 @@ However, if you have existing SQLite data:
 | `DJANGO_SECRET_KEY` | Yes | Django secret key | Generate with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"` |
 | `DJANGO_DEBUG` | Yes | Debug mode | `False` |
 | `DJANGO_ALLOWED_HOSTS` | Yes | Allowed hosts | `*.onrender.com` |
-| `DATABASE_ENGINE` | Yes | Database type | `mongodb` |
-| `MONGO_URI` | Yes | MongoDB connection string | `mongodb+srv://user:pass@cluster.mongodb.net/bugsense` |
-| `MONGO_DB_NAME` | Yes | Database name | `bugsense` |
+| `DATABASE_ENGINE` | Yes | Database type | `postgresql` |
+| `DB_NAME` | Auto | Database name (from Render) | `bugsense` |
+| `DB_USER` | Auto | Database user (from Render) | `bugsense` |
+| `DB_PASSWORD` | Auto | Database password (from Render) | Auto-generated |
+| `DB_HOST` | Auto | Database host (from Render) | Auto-generated |
+| `DB_PORT` | Auto | Database port (from Render) | `5432` |
 | `FRONTEND_URL` | Yes | Frontend URL for CORS | `https://bugsense.vercel.app` |
 | `CORS_ALLOWED_ORIGINS` | Yes | CORS origins | `https://bugsense.vercel.app` |
 | `CORS_ALLOW_ALL_ORIGINS` | Yes | Allow all origins | `False` |
@@ -190,6 +183,8 @@ However, if you have existing SQLite data:
 | `OPENAI_API_KEY` | No | OpenAI API key | `sk-...` |
 | `OPENAI_MODEL` | No | OpenAI model | `gpt-4o` |
 | `AI_PROVIDER_PRIORITY` | No | Provider priority | `gemini,openai,heuristic` |
+
+**Note**: PostgreSQL credentials (DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT) are automatically injected by Render from the database you created. You don't need to set them manually.
 
 ### Frontend (Vercel)
 
@@ -201,9 +196,9 @@ However, if you have existing SQLite data:
 
 ### Backend Won't Start
 - Check Render logs
-- Verify MongoDB connection string
+- Verify PostgreSQL database is running
 - Check environment variables
-- Ensure database is accessible
+- Ensure migrations have been run
 
 ### CORS Errors
 - Verify `FRONTEND_URL` matches actual Vercel URL
@@ -211,10 +206,10 @@ However, if you have existing SQLite data:
 - Restart backend after changing CORS settings
 
 ### Database Connection Failed
-- Verify MongoDB cluster is running
-- Check IP whitelist (0.0.0.0/0)
-- Verify username/password
-- Check connection string format
+- Verify PostgreSQL database is running
+- Check database credentials (should be auto-injected)
+- Verify DATABASE_ENGINE is set to "postgresql"
+- Check Render database logs
 
 ### Frontend Can't Connect to Backend
 - Verify backend URL is correct
@@ -222,10 +217,10 @@ However, if you have existing SQLite data:
 - Verify CORS configuration
 - Check browser console for errors
 
-### MongoDB Issues with Djongo
-- Djongo is not a production-grade MongoDB adapter
-- Consider using `mongoengine` or `pymongo` directly for production
-- For production, consider PostgreSQL instead of MongoDB
+### Migration Errors
+- Run migrations in Render shell
+- Check database is accessible
+- Verify database credentials are correct
 
 ## Alternative: Use PostgreSQL Instead of MongoDB
 
@@ -265,12 +260,12 @@ For better Django compatibility, consider using PostgreSQL:
 
 ### Free Tier Limits (as of 2024)
 
-**MongoDB Atlas Free:**
-- 512 MB storage
+**Render PostgreSQL Free:**
+- 90 MB storage
 - Shared RAM
 - Good for development/small projects
 
-**Render Free:**
+**Render Web Service Free:**
 - 512 MB RAM
 - 750 hours/month
 - Sleeps after 15 min inactivity
@@ -284,11 +279,11 @@ For better Django compatibility, consider using PostgreSQL:
 
 ### Estimated Monthly Costs (if needed)
 
-- MongoDB Atlas: $0 (free) to $9 (shared)
-- Render: $0 (free) to $7 (starter)
+- Render PostgreSQL: $0 (free) to $7 (starter)
+- Render Web Service: $0 (free) to $7 (starter)
 - Vercel: $0 (free) to $20 (pro)
 
-**Total**: $0 to $36/month
+**Total**: $0 to $34/month
 
 ## Security Checklist
 
@@ -299,8 +294,7 @@ For better Django compatibility, consider using PostgreSQL:
 - [ ] Configure CORS properly
 - [ ] Use environment variables for secrets
 - [ ] Rotate API keys regularly
-- [ ] Enable MongoDB authentication
-- [ ] Restrict MongoDB IP access (if possible)
+- [ ] Enable PostgreSQL authentication
 - [ ] Monitor logs for suspicious activity
 
 ## Performance Optimization
