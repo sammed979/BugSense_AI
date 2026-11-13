@@ -1,8 +1,24 @@
 // API Client Module
 const FRONTEND_HOST = window.location.hostname;
-const API_HOST = ['localhost', '127.0.0.1', '::1'].includes(FRONTEND_HOST) ? '127.0.0.1' : FRONTEND_HOST;
-const DEFAULT_API_ORIGIN = `${window.location.protocol}//${API_HOST}:8000`;
-const API_BASE_URL = (window.BUGSENSE_API_BASE_URL || `${DEFAULT_API_ORIGIN}/api/v1`).replace(/\/+$/, '');
+
+// Determine API base URL based on environment
+let API_BASE_URL;
+
+if (FRONTEND_HOST === 'localhost' || FRONTEND_HOST === '127.0.0.1') {
+    // Local development
+    API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
+} else if (FRONTEND_HOST.includes('.vercel.app')) {
+    // Production on Vercel - use Render backend
+    API_BASE_URL = window.BUGSENSE_API_BASE_URL || 'https://your-backend.onrender.com/api/v1';
+} else if (FRONTEND_HOST.includes('.onrender.com')) {
+    // Production on Render
+    API_BASE_URL = window.BUGSENSE_API_BASE_URL || 'https://your-backend.onrender.com/api/v1';
+} else {
+    // Fallback
+    API_BASE_URL = window.BUGSENSE_API_BASE_URL || `${window.location.protocol}//${FRONTEND_HOST}:8000/api/v1`;
+}
+
+API_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
 
 class APIClient {
     constructor() {

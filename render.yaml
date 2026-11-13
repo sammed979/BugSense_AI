@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: bugsense-ai-backend
+    env: python
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: "*.onrender.com"
+      - key: DATABASE_ENGINE
+        value: "mongodb"
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB_NAME
+        value: "bugsense"
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://your-frontend-url.vercel.app"
+      - key: CORS_ALLOW_ALL_ORIGINS
+        value: "False"
+      - key: EXECUTION_ENABLED
+        value: "True"
+      - key: EXECUTION_TIMEOUT_SECONDS
+        value: "5"
+      - key: EXECUTION_MEMORY_LIMIT_MB
+        value: "128"
+      - key: EXECUTION_MAX_OUTPUT_BYTES
+        value: "65536"
+      - key: REPAIR_MAX_ATTEMPTS
+        value: "3"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: "gemini-2.5-flash"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: "gpt-4o"
+      - key: AI_PROVIDER_PRIORITY
+        value: "gemini,openai,heuristic"
