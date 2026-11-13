@@ -145,9 +145,10 @@ class APIClient {
 
         if (response.status === 401) {
             if (!this.getRefreshToken()) {
+                // Silent redirect to login - no error thrown
                 window.auth.clearTokens();
                 window.location.hash = '#/login';
-                throw new Error('Your session expired. Please log in again.');
+                return response;
             }
             if (!this.refreshing) {
                 this.refreshing = this.refreshTokenRequest().finally(() => { this.refreshing = null; });
@@ -161,15 +162,18 @@ class APIClient {
                 response = await this.fetchWithTimeout(url, config, timeout);
             } catch (error) {
                 if (error.authExpired) {
+                    // Silent redirect to login - no error thrown
                     window.auth.clearTokens();
                     window.location.hash = '#/login';
+                    return response;
                 }
                 throw error;
             }
             if (response.status === 401) {
+                // Silent redirect to login - no error thrown
                 window.auth.clearTokens();
                 window.location.hash = '#/login';
-                throw new Error('Your session expired. Please log in again.');
+                return response;
             }
         }
 

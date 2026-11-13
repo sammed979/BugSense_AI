@@ -180,28 +180,60 @@ function handleRoute() {
             renderRegister();
             break;
         case '#/dashboard':
-            renderDashboard();
+            if (window.auth.isAuthenticated()) {
+                renderDashboard();
+            } else {
+                window.location.hash = '#/login';
+            }
             break;
         case '#/workspace':
-            renderWorkspace();
+            if (window.auth.isAuthenticated()) {
+                renderWorkspace();
+            } else {
+                window.location.hash = '#/login';
+            }
             break;
         case '#/logsense':
-            renderLogSensePage();
+            if (window.auth.isAuthenticated()) {
+                renderLogSensePage();
+            } else {
+                window.location.hash = '#/login';
+            }
             break;
         case '#/history':
-            renderHistory();
+            if (window.auth.isAuthenticated()) {
+                renderHistory();
+            } else {
+                window.location.hash = '#/login';
+            }
             break;
         case '#/learning':
-            renderLearningCentre();
+            if (window.auth.isAuthenticated()) {
+                renderLearningCentre();
+            } else {
+                window.location.hash = '#/login';
+            }
             break;
         case '#/profile':
-            renderProfile();
+            if (window.auth.isAuthenticated()) {
+                renderProfile();
+            } else {
+                window.location.hash = '#/login';
+            }
             break;
         case '#/settings':
-            renderSettings();
+            if (window.auth.isAuthenticated()) {
+                renderSettings();
+            } else {
+                window.location.hash = '#/login';
+            }
             break;
         default:
-            renderDashboard();
+            if (window.auth.isAuthenticated()) {
+                renderDashboard();
+            } else {
+                window.location.hash = '#/login';
+            }
     }
     document.getElementById('sidebar')?.classList.remove('open');
     document.body.classList.remove('navigation-open');
@@ -298,6 +330,12 @@ function renderSidebar() {
 
 // Render Login Page
 function renderLogin() {
+    // If already authenticated, redirect to dashboard
+    if (window.auth.isAuthenticated()) {
+        window.location.hash = '#/dashboard';
+        return;
+    }
+
     document.getElementById('app').innerHTML = `
         <div class="main-content">
             <div class="content-area">
@@ -349,6 +387,12 @@ function renderLogin() {
 
 // Render Register Page
 function renderRegister() {
+    // If already authenticated, redirect to dashboard
+    if (window.auth.isAuthenticated()) {
+        window.location.hash = '#/dashboard';
+        return;
+    }
+
     document.getElementById('app').innerHTML = `
         <div class="main-content">
             <div class="content-area">
@@ -408,6 +452,12 @@ function renderRegister() {
 
 // Render Dashboard
 async function renderDashboard() {
+    // Check authentication before loading dashboard
+    if (!window.auth.isAuthenticated()) {
+        window.location.hash = '#/login';
+        return;
+    }
+
     try {
         const stats = await window.api.getDashboardStats();
         document.getElementById('app').innerHTML = `
@@ -493,6 +543,13 @@ async function renderDashboard() {
         
         updateActiveNavItem();
     } catch (error) {
+        // If authentication error, redirect to login silently
+        if (error.message && error.message.includes('session expired')) {
+            window.location.hash = '#/login';
+            return;
+        }
+        
+        // For other errors, show user-friendly message
         console.error('Failed to load dashboard:', error);
         document.getElementById('app').innerHTML = `
             ${renderSidebar()}
