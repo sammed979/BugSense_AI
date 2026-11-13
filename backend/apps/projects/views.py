@@ -6,7 +6,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.views import APIView
 from django.conf import settings
 from apps.dashboard.models import Project, ProjectFile, ProjectAnalysis, ProjectIssue
-from .serializers import ProjectSerializer, ProjectFileSerializer, ProjectAnalysisSerializer, ProjectIssueSerializer
+from apps.projects.serializers import ProjectSerializer, ProjectFileSerializer, ProjectAnalysisSerializer, ProjectIssueSerializer
 import os
 import zipfile
 import tempfile

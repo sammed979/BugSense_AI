@@ -1,6 +1,5 @@
 from rest_framework import serializers
-from .models import Project, ProjectFile
-from apps.dashboard.models import ProjectAnalysis, ProjectIssue, FileDependency, SuggestedFix, AppliedChange
+from apps.dashboard.models import Project, ProjectFile, ProjectAnalysis, ProjectIssue, FileDependency, SuggestedFix, AppliedChange
 
 
 class ProjectSerializer(serializers.ModelSerializer):
