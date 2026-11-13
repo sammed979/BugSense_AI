@@ -935,16 +935,38 @@ def rollback_change(request, project_id):
     except ProjectFile.DoesNotExist:
         return Response({'error': 'File not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    # This is a simplified rollback - in production, you'd need to store original content
-    # For now, we'll mark it as rolled back
-    from django.utils import timezone
-    applied_change.rolled_back_at = timezone.now()
-    applied_change.save()
-
-    return Response({
-        'message': 'Change marked as rolled back',
-        'rolled_back_at': applied_change.rolled_back_at.isoformat(),
-    })
+    # Restore original content from SuggestedFix if available
+    try:
+        suggested_fix = SuggestedFix.objects.filter(
+            issue=applied_change.issue,
+            status='applied'
+        ).first()
+        
+        if suggested_fix and suggested_fix.original_code:
+            # Restore to database
+            project_file.content = suggested_fix.original_code
+            project_file.save()
+            
+            # Restore to workspace
+            workspace_base = os.path.join(settings.MEDIA_ROOT, 'project_workspaces')
+            workspace_dir = os.path.join(workspace_base, f"project_{project_id}")
+            workspace_file_path = workspace_dir / file_path
+            workspace_file_path.parent.mkdir(parents=True, exist_ok=True)
+            workspace_file_path.write_text(suggested_fix.original_code, encoding='utf-8')
+            
+            from django.utils import timezone
+            applied_change.rolled_back_at = timezone.now()
+            applied_change.save()
+            
+            return Response({
+                'message': 'Change rolled back successfully',
+                'rolled_back_at': applied_change.rolled_back_at.isoformat(),
+                'file_path': file_path,
+            })
+        else:
+            return Response({'error': 'Original content not available for rollback'}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response({'error': f'Rollback failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])

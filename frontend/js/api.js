@@ -406,6 +406,63 @@ class APIClient {
         return data;
     }
 
+    async getProjectIssues(projectId) {
+        const response = await this.request(`/projects/${encodeURIComponent(projectId)}/issues/`);
+        const data = await this.readResponse(response);
+        if (!response.ok) throw this.responseError(response, data, 'Project issues');
+        return data;
+    }
+
+    async generateProjectRepair(projectId, payload) {
+        const response = await this.request(`/projects/${encodeURIComponent(projectId)}/repair/generate/`, { 
+            method: 'POST', 
+            body: JSON.stringify(payload) 
+        });
+        const data = await this.readResponse(response);
+        if (!response.ok) throw this.responseError(response, data, 'Project repair generation');
+        return data;
+    }
+
+    async applyProjectRepair(projectId, payload) {
+        const response = await this.request(`/projects/${encodeURIComponent(projectId)}/repair/apply/`, { 
+            method: 'POST', 
+            body: JSON.stringify(payload) 
+        });
+        const data = await this.readResponse(response);
+        if (!response.ok) throw this.responseError(response, data, 'Project repair application');
+        return data;
+    }
+
+    async rejectProjectRepair(projectId, payload) {
+        const response = await this.request(`/projects/${encodeURIComponent(projectId)}/repair/reject/`, { 
+            method: 'POST', 
+            body: JSON.stringify(payload) 
+        });
+        const data = await this.readResponse(response);
+        if (!response.ok) throw this.responseError(response, data, 'Project repair rejection');
+        return data;
+    }
+
+    async rollbackProjectChange(projectId, payload) {
+        const response = await this.request(`/projects/${encodeURIComponent(projectId)}/repair/rollback/`, { 
+            method: 'POST', 
+            body: JSON.stringify(payload) 
+        });
+        const data = await this.readResponse(response);
+        if (!response.ok) throw this.responseError(response, data, 'Project rollback');
+        return data;
+    }
+
+    async downloadProject(projectId) {
+        const response = await this.request(`/projects/${encodeURIComponent(projectId)}/download/`);
+        if (!response.ok) {
+            const data = await this.readResponse(response);
+            throw this.responseError(response, data, 'Project download');
+        }
+        // Return the blob for download
+        return response.blob();
+    }
+
     async updateProfile(payload) {
         const response = await this.request('/auth/me/', { method: 'PATCH', body: JSON.stringify(payload) });
         const data = await this.readResponse(response);

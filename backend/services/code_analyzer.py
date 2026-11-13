@@ -180,7 +180,9 @@ class CodeAnalyzer:
                 input=code,
                 capture_output=True,
                 text=True,
-                timeout=3
+                timeout=3,
+                encoding='utf-8',
+                errors='replace'
             )
 
             if result.stdout:

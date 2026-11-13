@@ -1555,6 +1555,97 @@ async function repairWithHeuristic() {
         return;
     }
 
+    // Check if a project file is selected
+    const projectSelect = document.getElementById('workspace-project-select');
+    const projectId = projectSelect?.value;
+    
+    if (projectId && activeProjectFilePath) {
+        // Use project-specific repair
+        try {
+            heuristicBtn.disabled = true;
+            aiDiagnosisContent.innerHTML = '<div class="loading"><div class="loading-spinner"></div> Generating project repair...</div>';
+            
+            // First analyze the project to get issues
+            const analyzeResult = await window.api.analyzeProject(projectId);
+            
+            if (analyzeResult.issues_count === 0) {
+                aiDiagnosisContent.innerHTML = '<div class="diagnosis-value text-secondary">No issues found in this project.</div>';
+                terminalOutput.textContent = 'No issues detected in the project.';
+                heuristicBtn.disabled = false;
+                return;
+            }
+            
+            // Get issues for the current file
+            const issues = await window.api.getProjectIssues(projectId);
+            const fileIssues = issues.issues?.filter(i => i.affected_file === activeProjectFilePath);
+            
+            if (!fileIssues || fileIssues.length === 0) {
+                aiDiagnosisContent.innerHTML = '<div class="diagnosis-value text-secondary">No repairable issues found in this file.</div>';
+                terminalOutput.textContent = 'No repairable issues detected in the selected file.';
+                heuristicBtn.disabled = false;
+                return;
+            }
+            
+            // Generate repair for the first issue
+            const issue = fileIssues[0];
+            const repairResult = await window.api.generateProjectRepair(projectId, {
+                issue_id: issue.issue_id
+            });
+            
+            if (repairResult.error) {
+                aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Project repair failed: ${repairResult.error}</div>`;
+                terminalOutput.textContent = 'Error: ' + repairResult.error;
+                heuristicBtn.disabled = false;
+                return;
+            }
+            
+            // Display the repair result
+            window.pendingProjectRepair = {
+                project_id: projectId,
+                fix_id: repairResult.fix_id,
+                original_code: repairResult.original_code,
+                suggested_code: repairResult.suggested_code,
+                diff: repairResult.diff,
+                file_path: activeProjectFilePath
+            };
+            
+            aiDiagnosisContent.innerHTML = `
+                <div class="diagnosis-item">
+                    <div class="diagnosis-label">File</div>
+                    <div class="diagnosis-value">${escapeHTML(activeProjectFilePath)}</div>
+                </div>
+                <div class="diagnosis-item">
+                    <div class="diagnosis-label">Provider</div>
+                    <div class="diagnosis-value ai">${repairResult.provider || 'AI'}</div>
+                </div>
+                <div class="diagnosis-item">
+                    <div class="diagnosis-label">Confidence</div>
+                    <div class="diagnosis-value">${repairResult.confidence || 'N/A'}%</div>
+                </div>
+                <div class="diagnosis-item">
+                    <div class="diagnosis-label">Diff</div>
+                    <div class="diagnosis-value" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${escapeHTML(repairResult.diff || 'No diff available')}</div>
+                </div>
+                <div style="margin-top: 16px; display: flex; gap: 8px;">
+                    <button class="success" onclick="applyProjectRepair()" style="flex: 1;">Apply Fix</button>
+                    <button class="danger" onclick="rejectProjectRepair()" style="flex: 1;">Reject</button>
+                </div>
+            `;
+            
+            terminalOutput.textContent = 'Project repair generated. Review and choose to Apply or Reject.';
+            switchTerminalTab('diff');
+            heuristicBtn.disabled = false;
+            return;
+            
+        } catch (error) {
+            aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Project repair failed: ${error.message}</div>`;
+            terminalOutput.textContent = 'Error: ' + error.message;
+            heuristicBtn.disabled = false;
+            return;
+        }
+    }
+
+    // Original pasted-code repair logic
     // First run the code to get the actual error if not already present
     if (!terminalOutput.textContent.includes('Error Output') && !terminalOutput.textContent.includes('FAILED')) {
         heuristicBtn.disabled = true;
@@ -1695,6 +1786,65 @@ function rejectRepair() {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
             </svg>
             <p style="font-size: 13px;">Repair rejected</p>
+        </div>
+    `;
+}
+
+// Apply Project Repair
+async function applyProjectRepair() {
+    if (!window.pendingProjectRepair) return;
+    
+    const { project_id, fix_id, file_path } = window.pendingProjectRepair;
+    const terminalOutput = document.getElementById('terminal-output');
+    const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
+    
+    try {
+        const result = await window.api.applyProjectRepair(project_id, {
+            fix_id: fix_id
+        });
+        
+        // Refresh the file content
+        const projectFiles = await window.api.getProjectFiles(project_id);
+        const updatedFile = projectFiles.find(f => f.path === file_path);
+        
+        if (updatedFile) {
+            setEditorCode(updatedFile.content);
+            // Update the file in the local cache
+            activeProjectFiles = projectFiles;
+            renderWorkspaceFileTree();
+        }
+        
+        terminalOutput.textContent = `Repair applied to ${file_path}. Changes saved to project.`;
+        aiDiagnosisContent.innerHTML = `
+            <div class="empty-content">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p style="font-size: 13px;">Repair applied successfully</p>
+            </div>
+        `;
+        
+        window.pendingProjectRepair = null;
+    } catch (error) {
+        terminalOutput.textContent = 'Error: ' + error.message;
+        aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Failed to apply repair: ${error.message}</div>`;
+    }
+}
+
+// Reject Project Repair
+function rejectProjectRepair() {
+    window.pendingProjectRepair = null;
+    
+    const terminalOutput = document.getElementById('terminal-output');
+    terminalOutput.textContent = 'Project repair rejected. Original file preserved.';
+    
+    const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
+    aiDiagnosisContent.innerHTML = `
+        <div class="empty-content">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <p style="font-size: 13px;">Project repair rejected</p>
         </div>
     `;
 }
