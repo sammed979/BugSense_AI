@@ -15,6 +15,7 @@ from pathlib import Path
 from services.project_upload_service import ProjectUploadService, FileValidationError, ZipExtractionError
 from services.project_discovery_service import ProjectDiscoveryService
 from services.static_analysis_service import StaticAnalysisService
+from services.project_ai_service import ProjectAIService
 
 
 @api_view(['GET', 'POST'])
@@ -534,4 +535,111 @@ def run_static_analysis(request, project_id):
         'issues_by_severity': analysis_result['issues_by_severity'],
         'issues_by_category': analysis_result['issues_by_category'],
         'analyzed_files': len(files_dict),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def run_ai_analysis(request, project_id):
+    """Run AI analysis on project issues."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    # Get latest static analysis
+    latest_analysis = project.analyses.filter(analysis_type='static').first()
+    if not latest_analysis:
+        return Response(
+            {'error': 'No static analysis found. Run static analysis first.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Get all project files
+    project_files = project.files.all()
+    files_dict = {pf.path: pf.content for pf in project_files}
+
+    # Get static issues
+    static_issues = latest_analysis.issues.all()
+    static_issues_data = [ProjectIssueSerializer(i).data for i in static_issues]
+
+    # Get project context from discovery
+    workspace_base = os.path.join(settings.MEDIA_ROOT, 'project_workspaces')
+    workspace_dir = os.path.join(workspace_base, f"project_{project_id}")
+
+    discovery_service = ProjectDiscoveryService(workspace_dir)
+    discovery_result = discovery_service.scan_project()
+
+    project_context = {
+        'languages': discovery_result.get('languages', []),
+        'frameworks': discovery_result.get('frameworks', []),
+        'total_files': discovery_result.get('total_files', 0),
+    }
+
+    # Get AI provider from user settings
+    from apps.accounts.models import AIProviderSettings
+    provider_settings = AIProviderSettings.objects.filter(user=request.user).first()
+    provider = provider_settings.primary_provider if provider_settings else 'openai'
+
+    # Run AI analysis
+    ai_service = ProjectAIService()
+    enhanced_issues = ai_service.analyze_project_with_ai(
+        project_id=project_id,
+        files=files_dict,
+        static_issues=static_issues_data,
+        project_context=project_context,
+        provider=provider,
+        max_issues=request.data.get('max_issues', 10)
+    )
+
+    # Create AI analysis record
+    ai_analysis = ProjectAnalysis.objects.create(
+        project=project,
+        analysis_type='ai',
+        status='completed',
+        total_files=len(files_dict),
+        analyzed_files=len(enhanced_issues),
+        summary={
+            'total_issues': len(enhanced_issues),
+            'ai_provider': provider,
+        }
+    )
+
+    # Update or create issue records with AI analysis
+    for issue_data in enhanced_issues:
+        # Check if issue already exists
+        existing_issue = latest_analysis.issues.filter(
+            affected_file=issue_data.get('affected_file'),
+            line_number=issue_data.get('line_number')
+        ).first()
+
+        if existing_issue:
+            # Update with AI insights
+            existing_issue.ai_explanation = issue_data.get('ai_explanation', '')
+            existing_issue.ai_root_cause = issue_data.get('ai_root_cause', '')
+            existing_issue.ai_suggested_solution = issue_data.get('ai_suggested_solution', '')
+            existing_issue.ai_confidence = issue_data.get('ai_confidence', 0)
+            existing_issue.save()
+        else:
+            # Create new issue
+            ProjectIssue.objects.create(
+                analysis=ai_analysis,
+                issue_id=f"{project_id}_ai_{issue_data.get('affected_file', '')}_{issue_data.get('line_number', 0)}",
+                severity=issue_data.get('severity', 'medium'),
+                category=issue_data.get('category', 'unknown'),
+                affected_file=issue_data.get('affected_file', ''),
+                line_number=issue_data.get('line_number'),
+                explanation=issue_data.get('explanation', ''),
+                supporting_evidence=issue_data.get('supporting_evidence', []),
+                related_files=issue_data.get('related_files', []),
+                root_cause=issue_data.get('ai_root_cause', ''),
+                suggested_solution=issue_data.get('ai_suggested_solution', ''),
+                confidence=issue_data.get('ai_confidence', 0),
+            )
+
+    return Response({
+        'analysis_id': ai_analysis.id,
+        'total_issues': len(enhanced_issues),
+        'ai_provider': provider,
+        'analyzed_files': len(enhanced_issues),
     })

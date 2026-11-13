@@ -150,6 +150,14 @@ class ProjectIssue(models.Model):
     suggested_solution = models.TextField()
     confidence = models.IntegerField(default=0)  # 0-100
     status = models.CharField(max_length=50, default='pending')  # pending, approved, rejected, applied
+
+    # AI-enhanced fields
+    ai_explanation = models.TextField(null=True, blank=True)
+    ai_root_cause = models.TextField(null=True, blank=True)
+    ai_suggested_solution = models.TextField(null=True, blank=True)
+    ai_confidence = models.IntegerField(null=True, blank=True)
+    ai_provider = models.CharField(max_length=50, null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -10,5 +10,6 @@ urlpatterns = [
     path('<int:project_id>/analysis/', views.project_analysis, name='project_analysis'),
     path('<int:project_id>/issues/', views.project_issues, name='project_issues'),
     path('<int:project_id>/analyze/', views.run_static_analysis, name='run_static_analysis'),
+    path('<int:project_id>/analyze-ai/', views.run_ai_analysis, name='run_ai_analysis'),
     path('<int:project_id>/', views.project_detail, name='project_detail'),
 ]
