@@ -5,7 +5,8 @@ from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.views import APIView
 from django.conf import settings
-from apps.dashboard.models import Project, ProjectFile, ProjectAnalysis, ProjectIssue
+from django.utils import timezone
+from apps.dashboard.models import Project, ProjectFile, ProjectAnalysis, ProjectIssue, SuggestedFix, AppliedChange
 from apps.projects.serializers import ProjectSerializer, ProjectFileSerializer, ProjectAnalysisSerializer, ProjectIssueSerializer
 import os
 import zipfile
@@ -643,3 +644,250 @@ def run_ai_analysis(request, project_id):
         'ai_provider': provider,
         'analyzed_files': len(enhanced_issues),
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def generate_repair(request, project_id):
+    """Generate a repair suggestion for a specific issue."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    issue_id = request.data.get('issue_id')
+    if not issue_id:
+        return Response({'error': 'issue_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Get the issue
+    try:
+        issue = ProjectIssue.objects.get(issue_id=issue_id)
+    except ProjectIssue.DoesNotExist:
+        return Response({'error': 'Issue not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Get the file content
+    try:
+        project_file = project.files.get(path=issue.affected_file)
+    except ProjectFile.DoesNotExist:
+        return Response({'error': 'File not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Get project context
+    workspace_base = os.path.join(settings.MEDIA_ROOT, 'project_workspaces')
+    workspace_dir = os.path.join(workspace_base, f"project_{project_id}")
+
+    discovery_service = ProjectDiscoveryService(workspace_dir)
+    discovery_result = discovery_service.scan_project()
+
+    project_context = {
+        'languages': discovery_result.get('languages', []),
+        'frameworks': discovery_result.get('frameworks', []),
+    }
+
+    # Get AI provider
+    from apps.accounts.models import AIProviderSettings
+    provider_settings = AIProviderSettings.objects.filter(user=request.user).first()
+    provider = provider_settings.primary_provider if provider_settings else 'openai'
+
+    # Generate repair suggestion
+    ai_service = ProjectAIService()
+    repair_suggestion = ai_service.generate_repair_suggestion(
+        issue=ProjectIssueSerializer(issue).data,
+        file_content=project_file.content,
+        project_context=project_context,
+        provider=provider
+    )
+
+    # Create SuggestedFix record
+    suggested_fix = SuggestedFix.objects.create(
+        issue=issue,
+        original_code=repair_suggestion['original_code'],
+        suggested_code=repair_suggestion['suggested_code'],
+        explanation=repair_suggestion['explanation'],
+        diff_text=repair_suggestion['diff'],
+        requires_approval=True,
+        status='pending'
+    )
+
+    return Response({
+        'fix_id': suggested_fix.id,
+        'original_code': repair_suggestion['original_code'],
+        'suggested_code': repair_suggestion['suggested_code'],
+        'explanation': repair_suggestion['explanation'],
+        'diff': repair_suggestion['diff'],
+        'provider': repair_suggestion['provider'],
+        'confidence': repair_suggestion['confidence'],
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def apply_repair(request, project_id):
+    """Apply an approved repair to the project workspace."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    fix_id = request.data.get('fix_id')
+    if not fix_id:
+        return Response({'error': 'fix_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Get the suggested fix
+    try:
+        suggested_fix = SuggestedFix.objects.get(id=fix_id)
+    except SuggestedFix.DoesNotExist:
+        return Response({'error': 'Suggested fix not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Get the file
+    file_path = suggested_fix.issue.affected_file
+    try:
+        project_file = project.files.get(path=file_path)
+    except ProjectFile.DoesNotExist:
+        return Response({'error': 'File not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Calculate hashes
+    import hashlib
+    original_hash = hashlib.sha256(project_file.content.encode('utf-8')).hexdigest()
+    new_hash = hashlib.sha256(suggested_fix.suggested_code.encode('utf-8')).hexdigest()
+
+    # Update the file in database
+    project_file.content = suggested_fix.suggested_code
+    project_file.save()
+
+    # Update the file in workspace
+    workspace_base = os.path.join(settings.MEDIA_ROOT, 'project_workspaces')
+    workspace_dir = os.path.join(workspace_base, f"project_{project_id}")
+    workspace_file_path = workspace_dir / file_path
+    workspace_file_path.parent.mkdir(parents=True, exist_ok=True)
+    workspace_file_path.write_text(suggested_fix.suggested_code, encoding='utf-8')
+
+    # Update suggested fix status
+    suggested_fix.status = 'applied'
+    suggested_fix.approved_at = timezone.now()
+    suggested_fix.applied_at = timezone.now()
+    suggested_fix.save()
+
+    # Create AppliedChange record
+    from django.utils import timezone
+    import uuid
+    change_id = str(uuid.uuid4())
+    applied_change = AppliedChange.objects.create(
+        project=project,
+        issue=suggested_fix.issue,
+        file_path=file_path,
+        original_hash=original_hash,
+        new_hash=new_hash,
+        diff_text=suggested_fix.diff_text,
+        change_id=change_id,
+        reason=suggested_fix.explanation,
+        related_error_id=suggested_fix.issue.issue_id,
+        approved=True,
+        approved_at=timezone.now(),
+        applied_at=timezone.now(),
+    )
+
+    return Response({
+        'change_id': change_id,
+        'file_path': file_path,
+        'original_hash': original_hash,
+        'new_hash': new_hash,
+        'applied_at': applied_change.applied_at.isoformat(),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reject_repair(request, project_id):
+    """Reject a suggested repair."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    fix_id = request.data.get('fix_id')
+    if not fix_id:
+        return Response({'error': 'fix_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Get and update the suggested fix
+    try:
+        suggested_fix = SuggestedFix.objects.get(id=fix_id)
+        suggested_fix.status = 'rejected'
+        suggested_fix.save()
+    except SuggestedFix.DoesNotExist:
+        return Response({'error': 'Suggested fix not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response({'message': 'Repair rejected successfully'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def rollback_change(request, project_id):
+    """Rollback an applied change."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    change_id = request.data.get('change_id')
+    if not change_id:
+        return Response({'error': 'change_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Get the applied change
+    try:
+        applied_change = AppliedChange.objects.get(change_id=change_id, project=project)
+    except AppliedChange.DoesNotExist:
+        return Response({'error': 'Change not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Get the file
+    file_path = applied_change.file_path
+    try:
+        project_file = project.files.get(path=file_path)
+    except ProjectFile.DoesNotExist:
+        return Response({'error': 'File not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # This is a simplified rollback - in production, you'd need to store original content
+    # For now, we'll mark it as rolled back
+    from django.utils import timezone
+    applied_change.rolled_back_at = timezone.now()
+    applied_change.save()
+
+    return Response({
+        'message': 'Change marked as rolled back',
+        'rolled_back_at': applied_change.rolled_back_at.isoformat(),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def download_project(request, project_id):
+    """Download the project as a ZIP archive."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    # Create ZIP from workspace
+    workspace_base = os.path.join(settings.MEDIA_ROOT, 'project_workspaces')
+    workspace_dir = os.path.join(workspace_base, f"project_{project_id}")
+
+    if not os.path.exists(workspace_dir):
+        return Response({'error': 'Project workspace not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Create ZIP in memory
+    import zipfile
+    from django.http import HttpResponse
+    from io import BytesIO
+
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for root, dirs, files in os.walk(workspace_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arc_path = os.path.relpath(file_path, workspace_dir)
+                zip_file.write(file_path, arc_path)
+
+    zip_buffer.seek(0)
+
+    response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
+    response['Content-Disposition'] = f'attachment; filename="{project.name}_repaired.zip"'
+    return response
