@@ -236,10 +236,40 @@ Provide a JSON response with:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
+                response_format={"type": "json_object"},
             )
 
             content = response.choices[0].message.content
-            result = json.loads(content)
+            
+            # Remove markdown code blocks if present
+            if content.startswith('```'):
+                lines = content.split('\n')
+                if lines[0].startswith('```'):
+                    content = '\n'.join(lines[1:-1]) if lines[-1] == '```' else '\n'.join(lines[1:])
+            
+            # Try to parse JSON
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError:
+                # If JSON parsing fails, try to extract JSON from markdown
+                import re
+                json_match = re.search(r'\{[^{}]*\}', content, re.DOTALL)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group(0))
+                    except json.JSONDecodeError:
+                        return {
+                            "error": "OpenAI returned unparseable response",
+                            "error_type": "malformed_response",
+                            "message": "Response could not be parsed as JSON"
+                        }
+                else:
+                    return {
+                        "error": "OpenAI returned non-JSON response",
+                        "error_type": "malformed_response",
+                        "message": "Response did not contain valid JSON"
+                    }
+            
             result.update({'provider': 'OpenAI', 'model': model_name})
             return result
 

@@ -131,6 +131,10 @@ class APIClient {
 
     async request(endpoint, options = {}) {
         const url = `${API_BASE_URL}${endpoint}`;
+        
+        // Don't set Content-Type for FormData - browser handles it with boundary
+        const isFormData = options.body instanceof FormData;
+        
         const config = {
             ...options,
             headers: {
@@ -138,6 +142,11 @@ class APIClient {
                 ...options.headers,
             },
         };
+        
+        // Remove Content-Type header if we're sending FormData
+        if (isFormData) {
+            delete config.headers['Content-Type'];
+        }
 
         // Add timeout for long-running requests (like AI repairs)
         const timeout = options.timeout || 60000;
@@ -376,6 +385,24 @@ class APIClient {
         const response = await this.request(`/projects/${encodeURIComponent(projectId)}/files/`, { method: 'PUT', body: JSON.stringify({ path, content }) });
         const data = await this.readResponse(response);
         if (!response.ok) throw this.responseError(response, data, 'Project file');
+        return data;
+    }
+
+    async uploadProject(formData) {
+        const response = await this.request('/projects/upload/', { 
+            method: 'POST', 
+            body: formData,
+            headers: {} // Let browser set Content-Type for FormData
+        });
+        const data = await this.readResponse(response);
+        if (!response.ok) throw this.responseError(response, data, 'Project upload');
+        return data;
+    }
+
+    async analyzeProject(projectId) {
+        const response = await this.request(`/projects/${encodeURIComponent(projectId)}/analyze/`, { method: 'POST' });
+        const data = await this.readResponse(response);
+        if (!response.ok) throw this.responseError(response, data, 'Project analysis');
         return data;
     }
 

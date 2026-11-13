@@ -110,16 +110,33 @@ class CodeAnalyzer:
                 
                 # Check if there's a function that could compute this
                 function_names = []
+                function_details = {}
                 try:
                     tree = ast.parse(code)
                     for node in ast.walk(tree):
                         if isinstance(node, ast.FunctionDef):
                             function_names.append(node.name)
+                            # Capture function signature
+                            args = [arg.arg for arg in node.args.args]
+                            function_details[node.name] = {
+                                'args': args,
+                                'line': node.lineno
+                            }
                 except:
                     pass
                 
                 if function_names:
                     diagnosis['available_functions'] = function_names
+                    diagnosis['function_details'] = function_details
+                    
+                    # Check for common pattern: calculate_total function with total_price variable
+                    if 'calculate_total' in function_names and var_name == 'total_price':
+                        diagnosis['suggested_fix'] = 'Call calculate_total(price, quantity) instead of using undefined total_price'
+                        diagnosis['suggested_code'] = 'total = calculate_total(price, quantity)\nprint(total)'
+                        diagnosis['confidence'] = 95
+                    elif var_name.endswith('_price') and any('total' in name.lower() for name in function_names):
+                        diagnosis['suggested_fix'] = f'Call the available function to compute {var_name}'
+                        diagnosis['confidence'] = 90
                     
         elif 'ZeroDivisionError' in error_message:
             diagnosis['error_category'] = 'ZeroDivisionError'

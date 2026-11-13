@@ -566,6 +566,71 @@ def run_static_analysis(request, project_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def analyze_project(request, project_id):
+    """Run complete project analysis (static + AI if available)."""
+    try:
+        project = Project.objects.get(id=project_id, user=request.user)
+    except Project.DoesNotExist:
+        return Response({'error': 'Project not found'}, status=404)
+
+    # Get all project files
+    project_files = project.files.all()
+    files_dict = {pf.path: pf.content for pf in project_files}
+
+    if not files_dict:
+        return Response(
+            {'error': 'No files to analyze'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Run static analysis
+    analyzer = StaticAnalysisService(files_dict)
+    analysis_result = analyzer.analyze_project()
+
+    # Create analysis record
+    project_analysis = ProjectAnalysis.objects.create(
+        project=project,
+        analysis_type='static',
+        status='completed',
+        total_files=len(files_dict),
+        analyzed_files=len(files_dict),
+        summary={
+            'total_issues': analysis_result['total_issues'],
+            'issues_by_severity': analysis_result['issues_by_severity'],
+            'issues_by_category': analysis_result['issues_by_category'],
+        }
+    )
+
+    # Create issue records
+    issues_created = 0
+    for file_path, issues in analysis_result['file_analyses'].items():
+        for issue in issues:
+            ProjectIssue.objects.create(
+                analysis=project_analysis,
+                issue_id=f"{project_id}_{file_path}_{issue.get('line_number', 0)}_{issues_created}",
+                severity=issue.get('severity', 'medium'),
+                category=issue.get('category', 'unknown'),
+                affected_file=issue.get('affected_file', file_path),
+                line_number=issue.get('line_number'),
+                explanation=issue.get('explanation', ''),
+                supporting_evidence=[],
+                related_files=[],
+                suggested_solution=issue.get('explanation', ''),
+                confidence=issue.get('confidence', 50),
+            )
+            issues_created += 1
+
+    return Response({
+        'analysis_id': project_analysis.id,
+        'issues_count': analysis_result['total_issues'],
+        'issues_by_severity': analysis_result['issues_by_severity'],
+        'issues_by_category': analysis_result['issues_by_category'],
+        'analyzed_files': len(files_dict),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def run_ai_analysis(request, project_id):
     """Run AI analysis on project issues."""
     try:

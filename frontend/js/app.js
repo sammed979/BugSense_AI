@@ -592,9 +592,17 @@ function renderWorkspace() {
                 <div class="workspace-layout">
                     <div class="editor-section">
                         <section class="workspace-explorer" id="workspace-explorer">
-                          <header><button class="secondary" type="button" onclick="toggleWorkspaceExplorer()">▾ Project Explorer</button><select id="workspace-project-select" aria-label="Project"><option value="">No project selected</option></select><button class="secondary" type="button" id="new-project-btn">New project</button></header>
+                          <header>
+                            <button class="secondary" type="button" onclick="toggleWorkspaceExplorer()">▾ Project Explorer</button>
+                            <select id="workspace-project-select" aria-label="Project"><option value="">No project selected</option></select>
+                            <button class="secondary" type="button" id="new-project-btn">New project</button>
+                            <button class="secondary" type="button" id="upload-single-file-btn" title="Upload single file">📄 Upload File</button>
+                            <button class="secondary" type="button" id="upload-zip-btn" title="Upload project ZIP">📦 Upload ZIP</button>
+                            <input type="file" id="single-file-input" hidden>
+                            <input type="file" id="zip-file-input" accept=".zip" hidden>
+                          </header>
                           <div id="workspace-file-tree" class="workspace-file-tree"><p class="text-secondary">Select a project to browse its saved files. Source files are retained with the project.</p></div>
-                          <div class="workspace-file-actions"><span id="active-file-tab">Unsaved buffer</span><button class="secondary" id="new-project-file-btn" type="button" disabled>New file</button><button class="secondary" id="save-project-file-btn" type="button" disabled>Save file</button><span id="project-file-message" role="status"></span></div>
+                          <div class="workspace-file-actions"><span id="active-file-tab">Unsaved buffer</span><button class="secondary" id="new-project-file-btn" type="button" disabled>New file</button><button class="secondary" id="save-project-file-btn" type="button" disabled>Save file</button><button class="secondary" id="analyze-project-btn" type="button" disabled>Analyze Project</button><span id="project-file-message" role="status"></span></div>
                         </section>
                         <div class="action-toolbar">
                             <div class="toolbar-group">
@@ -793,6 +801,70 @@ async function loadWorkspaceProjects(selectId = '') {
         const name = window.prompt('Project name'); if (!name?.trim()) return;
         try { const project = await window.api.createProject({ name: name.trim(), source_type: 'paste', language: document.getElementById('language')?.value || 'python' }); localStorage.setItem('bugsense-project-id', project.id); await loadWorkspaceProjects(project.id); }
         catch (error) { const msg = document.getElementById('project-file-message'); if (msg) msg.textContent = error.message; }
+    };
+    
+    // Upload single file
+    document.getElementById('upload-single-file-btn').onclick = () => {
+        document.getElementById('single-file-input').click();
+    };
+    document.getElementById('single-file-input').onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const projectName = window.prompt('Project name for uploaded file', file.name.replace(/\.[^/.]+$/, ''));
+        if (!projectName?.trim()) return;
+        try {
+            const content = await file.text();
+            const project = await window.api.createProject({ 
+                name: projectName.trim(), 
+                source_type: 'upload', 
+                language: 'python' 
+            });
+            await window.api.saveProjectFile(project.id, file.name, content);
+            localStorage.setItem('bugsense-project-id', project.id);
+            await loadWorkspaceProjects(project.id);
+            document.getElementById('project-file-message').textContent = 'File uploaded successfully';
+        } catch (error) {
+            document.getElementById('project-file-message').textContent = error.message || 'Upload failed';
+        }
+        e.target.value = '';
+    };
+    
+    // Upload ZIP file
+    document.getElementById('upload-zip-btn').onclick = () => {
+        document.getElementById('zip-file-input').click();
+    };
+    document.getElementById('zip-file-input').onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const projectName = window.prompt('Project name for uploaded ZIP', file.name.replace('.zip', ''));
+        if (!projectName?.trim()) return;
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('name', projectName.trim());
+            formData.append('language', 'python');
+            
+            const project = await window.api.uploadProject(formData);
+            localStorage.setItem('bugsense-project-id', project.id);
+            await loadWorkspaceProjects(project.id);
+            document.getElementById('project-file-message').textContent = 'ZIP uploaded successfully';
+        } catch (error) {
+            document.getElementById('project-file-message').textContent = error.message || 'ZIP upload failed';
+        }
+        e.target.value = '';
+    };
+    
+    // Analyze project button
+    document.getElementById('analyze-project-btn').onclick = async () => {
+        const select = document.getElementById('workspace-project-select');
+        if (!select.value) return;
+        try {
+            const result = await window.api.analyzeProject(select.value);
+            document.getElementById('project-file-message').textContent = `Analysis complete: ${result.issues_count || 0} issues found`;
+            // Could expand to show issues in the file tree or a separate panel
+        } catch (error) {
+            document.getElementById('project-file-message').textContent = error.message || 'Analysis failed';
+        }
     };
     document.getElementById('new-project-file-btn').onclick = async () => {
         if (!select.value) return;
@@ -1038,16 +1110,90 @@ function switchTerminalTab(tab) {
     selected?.classList.add('active');
     
     const terminalOutput = document.getElementById('terminal-output');
-    const tabContents = {
-        output: 'No output yet. Click "Run Code" to execute.',
-        errors: 'No errors yet.',
-        explain: 'Run code and choose Explain Output, or open LogSense to explain a saved technical log.',
-        analysis: analysisResult ? JSON.stringify(analysisResult, null, 2) : 'No analysis yet. Click "Analyze" to get AI diagnosis.',
-        diff: window.pendingRepair ? window.pendingRepair.diff : 'No repair diff available.',
-        verification: 'No verification results yet. Click "Verify" to test your code.'
-    };
     
-    terminalOutput.textContent = tabContents[tab] || 'No content.';
+    // Store current output before switching
+    if (tab !== 'output' && terminalOutput.textContent && !window.originalTerminalOutput) {
+        window.originalTerminalOutput = terminalOutput.textContent;
+    }
+    
+    switch(tab) {
+        case 'output':
+            terminalOutput.textContent = window.originalTerminalOutput || 'No output yet. Click "Run Code" to execute.';
+            break;
+        case 'errors':
+            if (window.bugSenseLastTraceback) {
+                terminalOutput.textContent = `=== Error Output ===\n${window.bugSenseLastTraceback}`;
+            } else {
+                terminalOutput.textContent = 'No errors detected in the last execution.';
+            }
+            break;
+        case 'explain':
+            if (window.lastExplanation) {
+                terminalOutput.textContent = `=== AI Explanation ===\n${window.lastExplanation}`;
+            } else {
+                terminalOutput.textContent = 'Run code and click "Explain This Output" to get an AI explanation.';
+            }
+            break;
+        case 'analysis':
+            if (analysisResult) {
+                const ai = analysisResult.ai_analysis || {};
+                const static = analysisResult.static_analysis || {};
+                let content = '=== Analysis Results ===\n\n';
+                content += `Status: ${analysisResult.analysis_status || 'Unknown'}\n\n`;
+                if (ai.provider) {
+                    content += `AI Provider: ${ai.provider}${ai.model ? ` (${ai.model})` : ''}\n`;
+                    if (ai.error) {
+                        content += `AI Status: ${ai.error}\n`;
+                    }
+                }
+                if (ai.error_category || static.syntax_errors?.length) {
+                    content += `\nError Type: ${ai.error_category || (static.syntax_errors?.length ? 'Syntax Error' : 'Unknown')}\n`;
+                }
+                if (ai.summary) {
+                    content += `\nSummary: ${ai.summary}\n`;
+                }
+                if (static.syntax_errors?.length) {
+                    content += `\nSyntax Errors:\n${static.syntax_errors.map(e => `  Line ${e.line}: ${e.message}`).join('\n')}\n`;
+                }
+                if (static.undefined_names?.length) {
+                    content += `\nUndefined Names: ${static.undefined_names.join(', ')}\n`;
+                }
+                if (ai.confidence) {
+                    content += `\nConfidence: ${ai.confidence}%\n`;
+                }
+                terminalOutput.textContent = content;
+            } else {
+                terminalOutput.textContent = 'No analysis yet. Click "Analyze" to get AI diagnosis.';
+            }
+            break;
+        case 'diff':
+            if (window.pendingRepair?.diff) {
+                terminalOutput.textContent = `=== Proposed Repair Diff ===\n\n${window.pendingRepair.diff}`;
+            } else {
+                terminalOutput.textContent = 'No repair diff available. Click "Repair" to generate a repair proposal.';
+            }
+            break;
+        case 'verification':
+            if (window.verificationResult) {
+                let content = '=== Verification Results ===\n\n';
+                content += `Status: ${window.verificationResult.status || 'Unknown'}\n`;
+                if (window.verificationResult.exit_code !== undefined) {
+                    content += `Exit Code: ${window.verificationResult.exit_code}\n`;
+                }
+                if (window.verificationResult.stdout) {
+                    content += `\n=== Output ===\n${window.verificationResult.stdout}\n`;
+                }
+                if (window.verificationResult.stderr) {
+                    content += `\n=== Errors ===\n${window.verificationResult.stderr}\n`;
+                }
+                terminalOutput.textContent = content;
+            } else {
+                terminalOutput.textContent = 'No verification results yet. Click "Verify" to test your code.';
+            }
+            break;
+        default:
+            terminalOutput.textContent = 'No content.';
+    }
 }
 
 // Load Example
@@ -1117,6 +1263,7 @@ async function runCode() {
         }
 
         terminalOutput.textContent = output;
+        window.originalTerminalOutput = output;
         window.bugSenseLastOutputLog = [result.stdout, result.stderr].filter(Boolean).join('\n');
         const explainButton = document.getElementById('explain-output-btn');
         if (explainButton) explainButton.disabled = !window.bugSenseLastOutputLog.trim();
@@ -1125,7 +1272,9 @@ async function runCode() {
         window.bugSenseLastTraceback = result.exit_code !== 0 ? result.stderr || '' : '';
     } catch (error) {
         if (error.sessionId) setCurrentSessionId(error.sessionId);
-        terminalOutput.textContent = 'Error: ' + error.message;
+        const errorMsg = 'Error: ' + error.message;
+        terminalOutput.textContent = errorMsg;
+        window.originalTerminalOutput = errorMsg;
     } finally {
         runBtn.disabled = false;
         runBtn.innerHTML = `
@@ -1188,44 +1337,65 @@ async function analyzeCode() {
         const staticResult = result.static_analysis || {};
         const runtimeDiagnosis = result.runtime_diagnosis || {};
         
+        // Determine effective diagnosis (prefer AI, fallback to runtime/static)
+        const effectiveDiagnosis = aiResult.error ? runtimeDiagnosis : aiResult;
+        
         aiDiagnosisContent.innerHTML = `
-            <div class="diagnosis-item"><div class="diagnosis-label">AI Provider</div><div class="diagnosis-value ai">${escapeHTML(aiResult.provider || 'Gemini')}${aiResult.model ? ` (${escapeHTML(aiResult.model)})` : ''}</div></div>
-            ${aiResult.error || aiResult.status === 'consent_required' ? `<div class="diagnosis-item"><div class="diagnosis-label">AI Analysis Status</div><div class="diagnosis-value ${aiResult.error ? 'text-error' : ''}">${escapeHTML(aiResult.error || aiResult.message || aiResult.status)}${aiResult.error_type ? ` · ${escapeHTML(aiResult.error_type)}` : ''}</div></div>` : ''}
+            <div class="diagnosis-item"><div class="diagnosis-label">AI Provider</div><div class="diagnosis-value ai">${escapeHTML(aiResult.provider || 'Static Only')}${aiResult.model ? ` (${escapeHTML(aiResult.model)})` : ''}</div></div>
+            ${aiResult.error || aiResult.status === 'consent_required' ? `<div class="diagnosis-item"><div class="diagnosis-label">AI Analysis Status</div><div class="diagnosis-value ${aiResult.error ? 'text-error' : 'text-warning'}">${escapeHTML(aiResult.error || aiResult.message || aiResult.status)}${aiResult.error_type ? ` · ${escapeHTML(aiResult.error_type)}` : ''}</div></div>` : ''}
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Error Type</div>
-                <div class="diagnosis-value">${escapeHTML(aiResult.error_category || runtimeDiagnosis.error_category || 'Static analysis')}</div>
+                <div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.error_category || runtimeDiagnosis.error_category || 'Static analysis')}</div>
+            </div>
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Severity</div>
+                <div class="diagnosis-value ${effectiveDiagnosis.error_category?.includes('Error') ? 'text-error' : 'text-warning'}">${effectiveDiagnosis.error_category?.includes('Error') ? 'High' : 'Medium'}</div>
             </div>
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Summary</div>
-                <div class="diagnosis-value">${escapeHTML(aiResult.summary || runtimeDiagnosis.summary || 'Review the static findings below, then enable Gemini processing for an AI diagnosis.')}</div>
+                <div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.summary || runtimeDiagnosis.summary || 'Review the static findings below.')}</div>
             </div>
             ${staticResult.syntax_errors?.length ? `<div class="diagnosis-item"><div class="diagnosis-label">Syntax errors</div><div class="diagnosis-value text-error">${escapeHTML(staticResult.syntax_errors.map(item => `Line ${item.line}: ${item.message}`).join('\n'))}</div></div>` : ''}
             ${staticResult.undefined_names?.length ? `<div class="diagnosis-item"><div class="diagnosis-label">Possibly undefined names</div><div class="diagnosis-value text-warning">${escapeHTML(staticResult.undefined_names.map(item => item.name || item).join(', '))}</div></div>` : ''}
-            ${aiResult.possible_causes ? `
+            ${effectiveDiagnosis.possible_causes ? `
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Possible Causes</div>
-                <div class="diagnosis-value ai">${escapeHTML(Array.isArray(aiResult.possible_causes) ? aiResult.possible_causes.join(', ') : aiResult.possible_causes)}</div>
+                <div class="diagnosis-value ai">${escapeHTML(Array.isArray(effectiveDiagnosis.possible_causes) ? effectiveDiagnosis.possible_causes.join(', ') : effectiveDiagnosis.possible_causes)}</div>
+            </div>
+            ` : ''}
+            ${effectiveDiagnosis.undefined_variable ? `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Undefined Variable</div>
+                <div class="diagnosis-value text-error">${escapeHTML(effectiveDiagnosis.undefined_variable)}</div>
+            </div>
+            ` : ''}
+            ${effectiveDiagnosis.available_functions ? `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Available Functions</div>
+                <div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.available_functions.join(', '))}</div>
+            </div>
+            ` : ''}
+            ${effectiveDiagnosis.suggested_fix ? `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Suggested Fix</div>
+                <div class="diagnosis-value ai">${escapeHTML(effectiveDiagnosis.suggested_fix)}</div>
+            </div>
+            ` : ''}
+            ${effectiveDiagnosis.suggested_code ? `
+            <div class="diagnosis-item">
+                <div class="diagnosis-label">Corrected Code</div>
+                <div class="diagnosis-value code"><pre>${escapeHTML(effectiveDiagnosis.suggested_code)}</pre></div>
             </div>
             ` : ''}
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Confidence</div>
-                <div class="diagnosis-value">${Number.isFinite(aiResult.confidence) ? `${aiResult.confidence}%` : 'Not provided'}</div>
+                <div class="diagnosis-value">${Number.isFinite(effectiveDiagnosis.confidence) ? `${effectiveDiagnosis.confidence}%` : (aiResult.error ? 'Static only' : 'Not provided')}</div>
             </div>
-            ${aiResult.undefined_variable ? `
-            <div class="diagnosis-item">
-                <div class="diagnosis-label">Undefined Variable</div>
-                <div class="diagnosis-value text-error">${escapeHTML(aiResult.undefined_variable)}</div>
-            </div>
-            ` : ''}
-            ${aiResult.available_functions ? `
-            <div class="diagnosis-item">
-                <div class="diagnosis-label">Available Functions</div>
-                <div class="diagnosis-value">${escapeHTML(aiResult.available_functions.join(', '))}</div>
-            </div>
-            ` : ''}
         `;
 
         terminalOutput.textContent = `Analysis ${result.analysis_status || 'complete'}. Static findings are shown with the AI provider status.`;
+        // Switch to analysis tab to show results
+        switchTerminalTab('analysis');
     } catch (error) {
         aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Analysis failed: ${error.message}</div>`;
         terminalOutput.textContent = 'Error: ' + error.message;
@@ -1362,6 +1532,8 @@ async function repairCode() {
         `;
 
         terminalOutput.textContent = 'Repair generated. Review the AI Diagnosis panel and choose to Apply or Reject.';
+        // Switch to diff tab to show the repair
+        switchTerminalTab('diff');
     } catch (error) {
         console.error('Repair error:', error);
         aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Repair failed: ${error.message}</div>`;
@@ -1474,6 +1646,8 @@ async function repairWithHeuristic() {
         `;
 
         terminalOutput.textContent = 'Quick fix generated. Review and choose to Apply or Reject.';
+        // Switch to diff tab to show the repair
+        switchTerminalTab('diff');
     } catch (error) {
         console.error('Quick fix error:', error);
         aiDiagnosisContent.innerHTML = `<div class="diagnosis-value text-error">Quick fix failed: ${error.message}</div>`;
@@ -1547,12 +1721,26 @@ async function verifyCode() {
             original_code: applied?.original_code || '', repaired_code: code, language,
             session_id: currentSessionId, attempt_id: applied?.attempt_id,
         });
+        
+        // Store verification result for the verification tab
+        window.verificationResult = {
+            status: result.status || 'unknown',
+            syntax_check: result.syntax_check,
+            execution_check: result.execution_check,
+            exit_code: result.execution_result?.exit_code,
+            stdout: result.execution_result?.stdout,
+            stderr: result.execution_result?.stderr,
+        };
+        
         let output = `=== Verification Result ===\nStatus: ${(result.status || 'blocked').toUpperCase()}\nSyntax: ${result.syntax_check}\nExecution: ${result.execution_check}\n`;
         if (result.execution_result?.stdout) output += `\n=== Output ===\n${result.execution_result.stdout}`;
         if (result.execution_result?.stderr) output += `\n=== Details ===\n${result.execution_result.stderr}`;
         if (result.status === 'blocked') output += '\nExecution was unavailable, so this candidate was not marked as passed.';
         terminalOutput.textContent = output;
+        // Switch to verification tab to show results
+        switchTerminalTab('verification');
     } catch (error) {
+        window.verificationResult = { status: 'error', stderr: error.message };
         terminalOutput.textContent = 'Error: ' + error.message;
     } finally {
         verifyBtn.disabled = false;

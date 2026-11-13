@@ -514,10 +514,18 @@ button.violet:hover:not(:disabled) {
 #monaco-editor-container {
     flex: 1;
     min-height: 400px;
+    max-height: 60vh;
     border: 1px solid var(--border-color);
     border-radius: 8px;
     overflow: hidden;
     background: var(--bg-input);
+    position: relative;
+}
+
+#monaco-editor-container iframe,
+#monaco-editor-container .monaco-editor {
+    width: 100% !important;
+    height: 100% !important;
 }
 #workspace-code-fallback { display: block; width: 100%; height: calc(100% - 28px); min-height: 360px; resize: none; border: 0; border-radius: 0 0 8px 8px; background: var(--bg-input); color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.55; tab-size: 4; }
 .editor-fallback-label { display: block; padding: 6px 10px; color: var(--warning); font-size: 11px; background: var(--bg-sidebar); }
@@ -815,13 +823,108 @@ label {
 .workspace-file-actions { border-top:1px solid var(--border-color); padding-top:8px; font-size:12px; color:var(--text-secondary); }
 .workspace-explorer.collapsed .workspace-file-tree,.workspace-explorer.collapsed .workspace-file-actions { display:none; }
 .workspace-explorer.collapsed { padding:6px 10px; }
-.terminal-panel { resize: vertical; min-height: 150px; max-height: 55vh; overflow: auto; }
-.ai-panel { resize: horizontal; overflow: auto; min-width: 250px; max-width: 55vw; }
+.terminal-panel { 
+    resize: vertical; 
+    min-height: 150px; 
+    max-height: 55vh; 
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.terminal-tabs {
+    flex-shrink: 0;
+    display: flex;
+    gap: 4px;
+    padding: 8px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-sidebar);
+}
+
+.terminal-content {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.ai-panel { 
+    resize: horizontal; 
+    overflow: hidden;
+    min-width: 250px; 
+    max-width: 55vw;
+    display: flex;
+    flex-direction: column;
+}
+
+.ai-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+@media (max-width: 768px) {
+    .workspace-layout {
+        grid-template-columns: 1fr;
+    }
+    
+    .ai-panel {
+        max-width: 100%;
+        resize: none;
+        min-width: 100%;
+    }
+    
+    #monaco-editor-container {
+        max-height: 40vh;
+    }
+}
 .workspace-layout { grid-template-columns: minmax(0,1fr) minmax(280px, 34%); }
 :root[data-theme="light"] { --bg-primary:#f5f7fb; --bg-sidebar:#ffffff; --bg-elevated:#ffffff; --bg-input:#f8fafc; --border-color:#d9e0ea; --border-subtle:#e7ebf1; --text-primary:#1c2432; --text-secondary:#627087; --border-hover:#aeb9c9; }
 :root[data-theme="light"] body { background:var(--bg-primary); color:var(--text-primary); }
 :root[data-theme="light"] .sidebar,:root[data-theme="light"] .settings-card,:root[data-theme="light"] .learning-card,:root[data-theme="light"] .profile-card { box-shadow:0 2px 10px rgba(25,40,65,.04); }
-@media(max-width:900px) { .dashboard-columns { grid-template-columns:1fr; } .workspace-layout { grid-template-columns:minmax(0,1fr) minmax(230px,32%); } }
+@media(max-width:900px) { 
+    .dashboard-columns { grid-template-columns:1fr; } 
+    .workspace-layout { grid-template-columns:minmax(0,1fr) minmax(230px,32%); }
+    .sidebar { width: 200px; }
+}
+
+@media (max-width: 600px) {
+    .sidebar {
+        position: fixed;
+        left: -200px;
+        z-index: 1000;
+        transition: left 0.3s ease;
+    }
+    
+    .sidebar.open {
+        left: 0;
+    }
+    
+    .main-content {
+        margin-left: 0;
+    }
+    
+    .workspace-layout {
+        grid-template-columns: 1fr;
+    }
+    
+    .ai-panel {
+        max-width: 100%;
+        resize: none;
+    }
+    
+    .toolbar-group {
+        flex-wrap: wrap;
+    }
+    
+    .toolbar-group button {
+        flex: 1;
+        min-width: 80px;
+    }
+}
 
 /* Glassmorphism AI Lab design system */
 :root {
