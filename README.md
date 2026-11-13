@@ -31,55 +31,20 @@ BugSense AI is a college Computer Science Engineering project for code debugging
 
 ## Project Structure
 
-```
-BugSense-AI/
-│
-├── frontend/              # Vanilla HTML/CSS/JS frontend
-│   ├── index.html        # Main HTML file
-│   ├── css/
-│   │   └── style.css     # Main stylesheet
-│   ├── js/
-│   │   ├── api.js        # API client
-│   │   ├── auth.js       # Authentication module
-│   │   └── app.js        # Main application logic
-│   └── assets/
-│       ├── images/
-│       └── icons/
-│
-├── backend/              # Django backend
-│   ├── manage.py         # Django management script
-│   ├── requirements.txt  # Python dependencies
-│   ├── .env.example      # Environment variables template
-│   ├── config/           # Django settings
-│   │   ├── settings.py
-│   │   ├── urls.py
-│   │   ├── asgi.py
-│   │   └── wsgi.py
-│   ├── apps/             # Django apps
-│   │   ├── accounts/     # User authentication
-│   │   ├── dashboard/    # Dashboard and statistics
-│   │   ├── projects/     # Project management
-│   │   ├── analysis/     # Code analysis
-│   │   ├── repair/       # Automatic repair
-│   │   ├── execution/    # Code execution
-│   │   ├── verification/  # Repair verification
-│   │   ├── history/      # Debugging history
-│   │   └── learning/     # Learning centre
-│   ├── services/         # Business logic services
-│   │   ├── ai_service.py
-│   │   ├── error_parser.py
-│   │   ├── code_analyzer.py
-│   │   ├── repair_engine.py
-│   │   └── verification_engine.py
-│   ├── sandbox/          # Code execution sandbox
-│   │   └── python_runner.py
-│   └── tests/            # Backend tests
-│
-├── docs/                 # Documentation
-├── docker-compose.yml
-├── .gitignore
-└── README.md
-```
+For the complete project structure, see [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md).
+
+The backend follows Django conventions with apps organized under `backend/apps/`:
+- `accounts/` - User authentication
+- `dashboard/` - Core models (Project, Session, etc.)
+- `projects/` - Project management
+- `analysis/` - Code analysis
+- `execution/` - Code execution
+- `history/` - Session history
+- `repair/` - Code repair
+- `verification/` - Repair verification
+- `learning/` - Learning centre
+
+The frontend is a vanilla JavaScript application in `frontend/` with no build step required.
 
 ## Setup Instructions
 
@@ -170,65 +135,124 @@ See `backend/.env.example` for all available configuration options:
 - `AI_PROVIDER_PRIORITY`: Legacy provider default; per-user provider preferences are stored in Django
 - `CORS_ALLOWED_ORIGINS`: Allowed CORS origins
 
+## Documentation
+
+For detailed information about the system, see the documentation in the `docs/` directory:
+
+- **[PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)** - Complete project structure and file organization
+- **[SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md)** - System architecture, technology stack, and design decisions
+- **[USER_GUIDE.md](docs/USER_GUIDE.md)** - User guide for all six functional modules
+
 ## Features
 
-### ✅ Implemented
+### Six Functional Modules
 
+BugSense AI is organized into six logical functional modules:
+
+1. **Accounts Management** - User authentication, registration, and AI provider settings
+2. **Debugging Workspace** - Code editor, execution, and session management
+3. **AI Analysis** - Static analysis, error diagnosis, and LogSense log analysis
+4. **Project Management** - Project upload, file management, and project-level analysis
+5. **Code Repair and Verification** - AI-powered repair generation and verification
+6. **Learning Centre** - Interactive debugging lessons and learning resources
+
+### ✅ Implemented Features
+
+**Accounts Management:**
 - User registration and login with JWT authentication
-- Dashboard with real database statistics
-- Workspace with three diagnostic inputs (error message, terminal logs, source code)
-- Dedicated LogSense page for pasted logs and `.txt` / `.log` uploads, with English/Kannada and three explanation levels
-- Consent-gated, redacted external log interpretation and per-user saved explanation history
-- LogSense practice activities saved to the user's Learning Centre history
-- Code execution service (when enabled)
-- Error analysis engine (traceback parsing, static analysis)
-- AI integration for diagnosis and repair (when configured)
-- Deterministic local repair engine and provider-routed repair proposals
-- User-reviewed repair diffs and verification statuses that require actual execution to pass
-- Django REST Framework APIs
+- JWT token refresh with automatic rotation
+- User profile management
+- AI provider settings (OpenAI, Gemini)
+- Per-user provider preferences
 
-### 🚧 To Be Implemented
+**Debugging Workspace:**
+- Monaco Editor integration with syntax highlighting
+- Isolated Python code execution (configurable)
+- Execution output capture (stdout, stderr, exit code)
+- Resource limits (timeout, memory, output size)
+- Session history tracking
+- Terminal panel with multiple tabs (Output, Errors, AI Analysis, Repair Diff, Verification)
 
-- Monaco Editor integration (currently using textarea)
-- Project upload functionality
-- Approval and rollback workflow
-- Local agent for file modifications
-- Complete history and reports
-- Learning centre content
-- Automated backend and frontend regression tests
+**AI Analysis:**
+- Static code analysis (Python AST, Ruff linter)
+- Syntax error detection
+- Undefined variable detection
+- Error context analysis
+- AI-powered error diagnosis (OpenAI, Gemini)
+- Provider routing with fallback (Gemini → OpenAI → Heuristic)
+- LogSense log analysis with sensitive data redaction
+- Consent-gated external AI interpretation
+- Traceback parsing and error classification
 
-### Current limitations
+**Project Management:**
+- Single file upload
+- Multiple file upload
+- ZIP archive upload with secure extraction
+- ZIP path traversal protection
+- Project file tree navigation
+- File preview and editing
+- Project-level static analysis
+- Project-level AI analysis
+- Cross-file dependency analysis
+- Issue tracking with severity levels
+- Workspace management
+- Automatic workspace cleanup
 
-- Local LogSense uses explainable patterns and may not understand an unfamiliar format; enable source-sharing consent for configured external AI interpretation.
-- External AI availability depends on the configured provider key, model access, and quota.
-- Python execution uses a restricted temporary subprocess and is disabled unless explicitly enabled. It is not a Docker-grade production sandbox.
-- The existing application does not yet provide the full multi-file project explorer, rollbackable filesystem patching, reports, or a complete course catalog.
+**Code Repair and Verification:**
+- AI-powered repair generation
+- Heuristic (local) repair engine
+- Diff generation and display
+- Repair approval workflow (Apply/Reject)
+- Repair verification (syntax check + execution test)
+- Rollback functionality
+- Change history tracking
+- Repaired project ZIP download
+
+**Learning Centre:**
+- Structured debugging curriculum
+- Interactive lessons with code examples
+- Error pattern lessons (NameError, TypeError, etc.)
+- Practice problems
+- AI-powered lesson recommendations
+- Progress tracking
+- Follow-up questions
+- Built-in error catalogue
+
+### 🚧 Future Enhancements
+
+- Real-time collaboration features
+- Additional language support (JavaScript, Java, C++)
+- Advanced project analysis patterns
+- Custom AI model integration
+- Plugin system architecture
+- Team workspaces
+- CI/CD integration
+
+### Current Limitations
+
+- AI availability depends on configured provider keys, model access, and quota
+- Python execution uses a restricted subprocess (not Docker-grade production sandbox)
+- LogSense local analysis uses explainable patterns; enable AI for complex logs
+- Multi-language support beyond Python is not yet implemented
+- Project analysis is optimized for Python projects
 
 ## Security Considerations
 
 - Passwords are hashed using Django's default password hasher
-- JWT tokens for authentication
+- JWT tokens for authentication with automatic refresh
 - User data isolation (each user can only access their own data)
-- Code execution in restricted environment (when enabled)
-- No hardcoded secrets
+- Code execution in restricted environment with resource limits
+- No hardcoded secrets (API keys stored in environment variables)
 - Input validation on both frontend and backend
-
-## Limitations
-
-- Python execution is disabled by default until configured
-- Email verification requires SMTP configuration
-- AI integration requires API key configuration
-- Multi-language support (JavaScript, Java, C++) is not yet implemented
-- Monaco Editor integration pending (using textarea as placeholder)
-
-## Contributing
-
-This is a student project. Contributions should align with the project goals and maintain code quality.
-
-## License
-
-This is an educational project developed for academic purposes.
+- ZIP path traversal protection for file uploads
+- File size limits and type validation
+- CORS configuration for frontend-backend communication
 
 ## Support
 
-For issues or questions, please refer to the documentation in the `docs/` directory.
+For detailed information:
+- **User Guide:** [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - How to use all six modules
+- **System Architecture:** [docs/SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md) - Technical design and architecture
+- **Project Structure:** [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) - Complete file organization
+
+For issues or questions, refer to the documentation in the `docs/` directory.

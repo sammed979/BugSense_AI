@@ -1,5 +1,18 @@
 # BugSense AI - Complete Project Structure
 
+## Overview
+
+BugSense AI is an AI-assisted debugging platform that helps developers identify, analyze, and fix code errors. The system is organized into **six logical functional modules** for clear presentation and understanding:
+
+1. **Accounts Management** - User authentication, registration, and AI provider settings
+2. **Debugging Workspace** - Code editor, execution, and session management
+3. **AI Analysis** - Static analysis, error diagnosis, and LogSense log analysis
+4. **Project Management** - Project upload, file management, and project-level analysis
+5. **Code Repair and Verification** - AI-powered repair generation and verification
+6. **Learning Centre** - Interactive debugging lessons and learning resources
+
+> **Note:** These six modules are logical groupings for presentation purposes. The actual Django backend follows standard Django conventions with apps organized under `backend/apps/`.
+
 ## Root Directory
 
 ```
@@ -13,6 +26,7 @@ BugSense_AI/
 ├── PROJECT_AUDIT.md                      # Project audit documentation
 ├── PROJECT_UPGRADE_DELIVERY_REPORT.md    # Delivery report
 ├── PROJECT_UPGRADE_DELIVERY_REPORT_UPDATED.md  # Updated delivery report
+├── PROJECT_STRUCTURE.md                  # This file - project structure
 ├── README.md                             # Project README
 ├── .vscode/                              # VS Code settings
 │   └── settings.json
@@ -21,11 +35,13 @@ BugSense_AI/
 │   ├── Dockerfile.backend
 │   └── Dockerfile.frontend
 ├── docs/                                 # Documentation
-│   └── SETUP.md
+│   ├── PROJECT_STRUCTURE.md              # This file (link or copy)
+│   ├── SYSTEM_ARCHITECTURE.md            # System architecture documentation
+│   └── USER_GUIDE.md                     # User guide documentation
 ├── execution-service/                   # Execution service (placeholder)
 ├── frontend/                             # Vanilla JS frontend
 ├── local-agent/                          # Local agent (placeholder)
-└── _quarantine/                          # Quarantined files
+└── _quarantine/                          # Quarantined files (preserved, not used)
 ```
 
 ## Backend Structure
@@ -39,10 +55,10 @@ backend/
 ├── requirements.txt                      # Python dependencies
 ├── .venv/                                # Python virtual environment (ignored)
 │
-├── apps/                                 # Django applications
+├── apps/                                 # Django applications (following Django conventions)
 │   ├── __init__.py
 │   │
-│   ├── accounts/                         # User authentication
+│   ├── accounts/                         # → MODULE 1: Accounts Management
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── models.py                     # User, AIProviderSettings models
@@ -55,17 +71,17 @@ backend/
 │   │       ├── 0002_alter_aiprovidersettings_*.py
 │   │       └── __init__.py
 │   │
-│   ├── analysis/                         # Code analysis & LogSense
+│   ├── analysis/                         # → MODULE 3: AI Analysis
 │   │   ├── admin.py
 │   │   ├── apps.py
-│   │   ├── logsense_views.py             # Log analysis views
+│   │   ├── logsense_views.py             # LogSense log analysis
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── tests.py
 │   │   ├── urls.py
 │   │   └── views.py                      # Analysis endpoints
 │   │
-│   ├── dashboard/                        # Dashboard & core models
+│   ├── dashboard/                        # Core models used across modules
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── models.py                     # Project, ProjectFile, DebuggingSession, etc.
@@ -78,22 +94,22 @@ backend/
 │   │       ├── 0004_projectissue_*.py
 │   │       └── __init__.py
 │   │
-│   ├── execution/                        # Code execution
+│   ├── execution/                        # → MODULE 2: Debugging Workspace
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── models.py
 │   │   ├── tests.py
 │   │   ├── urls.py
-│   │   └── views.py                      # Execution endpoints
+│   │   └── views.py                      # Code execution endpoints
 │   │
-│   ├── history/                          # Session history
+│   ├── history/                          # → MODULE 2: Debugging Workspace
 │   │   ├── apps.py
 │   │   ├── models.py
 │   │   ├── tests.py
 │   │   ├── urls.py
-│   │   └── views.py
+│   │   └── views.py                      # Session history endpoints
 │   │
-│   ├── learning/                         # Learning/lessons
+│   ├── learning/                         # → MODULE 6: Learning Centre
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── models.py                     # LearningTopic, Lesson models
@@ -112,7 +128,7 @@ backend/
 │   │       ├── 0008_restore_legacy_lessons.py
 │   │       └── __init__.py
 │   │
-│   ├── projects/                         # Project management
+│   ├── projects/                         # → MODULE 4: Project Management
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── models.py                     # Delegates to dashboard models
@@ -125,14 +141,14 @@ backend/
 │   │           ├── cleanup_workspaces.py  # Django management command
 │   │           └── __init__.py
 │   │
-│   ├── repair/                           # Code repair
+│   ├── repair/                           # → MODULE 5: Code Repair and Verification
 │   │   ├── admin.py
 │   │   ├── apps.py
 │   │   ├── models.py
 │   │   ├── urls.py
 │   │   └── views.py                      # Repair endpoints
 │   │
-│   └── verification/                     # Code verification
+│   └── verification/                     # → MODULE 5: Code Repair and Verification
 │       ├── admin.py
 │       ├── apps.py
 │       ├── models.py
@@ -146,11 +162,11 @@ backend/
 │   ├── wsgi.py                           # WSGI config
 │   └── __init__.py
 │
-├── sandbox/                              # Code execution sandbox
-│   ├── python_runner.py                  # Python code runner
+├── sandbox/                              # → MODULE 2: Debugging Workspace
+│   ├── python_runner.py                  # Isolated Python code execution
 │   └── __pycache__/
 │
-├── services/                             # Business logic services
+├── services/                             # Business logic services (shared across modules)
 │   ├── ai_service.py                     # AI provider integration (OpenAI, Gemini)
 │   ├── analysis_cache.py                 # Analysis caching
 │   ├── code_analyzer.py                  # Static code analysis (AST, Ruff)
@@ -166,7 +182,7 @@ backend/
 │   ├── verification_engine.py           # Repair verification
 │   └── __init__.py
 │
-├── static/                               # Static files
+├── static/                               # Static files served by Django
 │   ├── css/
 │   │   └── base.css
 │   └── js/
@@ -239,8 +255,194 @@ docker/
 
 ```
 docs/
-└── SETUP.md                              # Setup documentation
+├── PROJECT_STRUCTURE.md                  # This file (link or copy)
+├── SYSTEM_ARCHITECTURE.md                # System architecture documentation
+└── USER_GUIDE.md                         # User guide documentation
 ```
+
+## Six Logical Functional Modules
+
+The BugSense AI system is organized into six logical modules for clear understanding and presentation:
+
+### Module 1: Accounts Management
+**Django Apps:** `accounts/`
+
+**Purpose:** User authentication, registration, and AI provider configuration
+
+**Key Features:**
+- User registration and login
+- JWT-based authentication
+- AI provider settings (OpenAI, Gemini)
+- User profile management
+- Session management
+
+**Key Models:**
+- `User` (extended Django user)
+- `AIProviderSettings` (provider preferences, API keys)
+
+**Key Endpoints:**
+- `POST /api/v1/auth/register/` - Register new user
+- `POST /api/v1/auth/login/` - User login
+- `POST /api/v1/auth/token/refresh/` - Refresh access token
+- `GET /api/v1/auth/me/` - Get user profile
+- `PATCH /api/v1/auth/me/` - Update user profile
+
+---
+
+### Module 2: Debugging Workspace
+**Django Apps:** `execution/`, `history/`, `sandbox/`
+
+**Purpose:** Code editor, execution environment, and session history
+
+**Key Features:**
+- Monaco code editor integration
+- Isolated Python code execution
+- Execution output capture
+- Session history tracking
+- Error traceback display
+
+**Key Models:**
+- `DebuggingSession` (code, language, error, logs)
+- Session history records
+
+**Key Services:**
+- `python_runner.py` - Isolated code execution
+- Resource limits (timeout, memory, output size)
+
+**Key Endpoints:**
+- `POST /api/v1/execution/` - Execute code
+- `GET /api/v1/history/` - List sessions
+- `GET /api/v1/history/{id}/` - Get session details
+
+---
+
+### Module 3: AI Analysis
+**Django Apps:** `analysis/`
+
+**Purpose:** Static analysis, error diagnosis, and log analysis
+
+**Key Features:**
+- Static code analysis (Python AST, Ruff)
+- AI-powered error diagnosis (OpenAI, Gemini)
+- LogSense log analysis
+- Traceback parsing
+- Error context analysis
+
+**Key Services:**
+- `code_analyzer.py` - Static analysis (AST, undefined names, syntax errors)
+- `error_parser.py` - Traceback parsing
+- `log_sense.py` - Log analysis and redaction
+- `ai_service.py` - AI provider integration
+
+**Key Endpoints:**
+- `GET /api/v1/analysis/health/` - AI provider health check
+- `POST /api/v1/analysis/` - Analyze code (static + AI)
+
+---
+
+### Module 4: Project Management
+**Django Apps:** `projects/`, `dashboard/` (models)
+
+**Purpose:** Project upload, file management, and project-level analysis
+
+**Key Features:**
+- Single file upload
+- Multiple file upload
+- ZIP archive upload with secure extraction
+- Project file tree navigation
+- Project-level static analysis
+- Project-level AI analysis
+- Cross-file dependency analysis
+- Workspace management
+
+**Key Models:**
+- `Project` - Project metadata
+- `ProjectFile` - File content and path
+- `ProjectAnalysis` - Analysis results
+- `ProjectIssue` - Detected issues
+- `SuggestedFix` - AI-generated fixes
+- `AppliedChange` - Change tracking
+
+**Key Services:**
+- `project_upload_service.py` - Secure file upload handling
+- `project_discovery_service.py` - Project structure discovery
+- `static_analysis_service.py` - Project static analysis
+- `project_ai_service.py` - Project AI analysis
+- `analysis_cache.py` - Analysis caching
+
+**Key Endpoints:**
+- `GET /api/v1/projects/` - List projects
+- `POST /api/v1/projects/` - Create project
+- `POST /api/v1/projects/upload/` - Upload ZIP project
+- `POST /api/v1/projects/upload/single/` - Upload single file
+- `POST /api/v1/projects/upload/multiple/` - Upload multiple files
+- `GET /api/v1/projects/{id}/files/` - List project files
+- `PUT /api/v1/projects/{id}/files/` - Save project file
+- `POST /api/v1/projects/{id}/analyze/` - Analyze project
+- `GET /api/v1/projects/{id}/issues/` - Get project issues
+
+---
+
+### Module 5: Code Repair and Verification
+**Django Apps:** `repair/`, `verification/`
+
+**Purpose:** AI-powered repair generation and verification
+
+**Key Features:**
+- AI-generated code repairs
+- Heuristic (local) repairs
+- Diff generation and display
+- Repair approval workflow
+- Repair verification
+- Rollback functionality
+- Change history tracking
+
+**Key Services:**
+- `repair_engine.py` - AI-powered repair
+- `local_repair_engine.py` - Heuristic repairs
+- `verification_engine.py` - Repair verification
+
+**Key Models:**
+- `RepairAttempt` - Repair attempts tracking
+- `VerificationRun` - Verification results
+- `FileChange` - Change tracking
+- `AppliedChange` - Applied changes
+
+**Key Endpoints:**
+- `POST /api/v1/repair/generate/` - Generate repair
+- `POST /api/v1/repair/apply/` - Apply repair
+- `POST /api/v1/repair/reject/` - Reject repair
+- `POST /api/v1/verification/` - Verify repair
+- `POST /api/v1/projects/{id}/repair/generate/` - Generate project repair
+- `POST /api/v1/projects/{id}/repair/apply/` - Apply project repair
+- `POST /api/v1/projects/{id}/repair/rollback/` - Rollback project repair
+
+---
+
+### Module 6: Learning Centre
+**Django Apps:** `learning/`
+
+**Purpose:** Interactive debugging lessons and learning resources
+
+**Key Features:**
+- Structured debugging curriculum
+- Interactive lessons
+- Error pattern practice
+- Follow-up questions
+- Learning recommendations
+- Progress tracking
+
+**Key Models:**
+- `LearningTopic` - Learning topics/categories
+- `Lesson` - Debugging lessons
+- Built-in error catalogue
+
+**Key Endpoints:**
+- `GET /api/v1/learning/` - List lessons
+- `GET /api/v1/learning/{id}/` - Get lesson details
+- `POST /api/v1/learning/recommendations/` - Get lesson recommendations
+
+---
 
 ## Quarantine Structure
 
