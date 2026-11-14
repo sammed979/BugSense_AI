@@ -11,11 +11,12 @@ if (hostname === 'localhost' || hostname === '127.0.0.1') {
     ENVIRONMENT = 'development';
 } else if (hostname.includes('.vercel.app')) {
     // Production on Vercel
-    API_BASE_URL = process.env.RENDER_BACKEND_URL || 'https://your-backend.onrender.com/api/v1';
+    // Use the actual Render backend URL
+    API_BASE_URL = 'https://bugsense-ai-backend.onrender.com/api/v1';
     ENVIRONMENT = 'production';
 } else if (hostname.includes('.onrender.com')) {
     // Production on Render
-    API_BASE_URL = 'https://your-backend.onrender.com/api/v1';
+    API_BASE_URL = 'https://bugsense-ai-backend.onrender.com/api/v1';
     ENVIRONMENT = 'production';
 }
 

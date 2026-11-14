@@ -1,21 +1,18 @@
 // API Client Module
 const FRONTEND_HOST = window.location.hostname;
 
-// Determine API base URL based on environment
-let API_BASE_URL;
+// Use API_BASE_URL from runtime-config.js
+let API_BASE_URL = window.BugSenseConfig?.API_BASE_URL || 'http://127.0.0.1:8000/api/v1';
 
-if (FRONTEND_HOST === 'localhost' || FRONTEND_HOST === '127.0.0.1') {
-    // Local development
-    API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
-} else if (FRONTEND_HOST.includes('.vercel.app')) {
-    // Production on Vercel - use Render backend
-    API_BASE_URL = window.BUGSENSE_API_BASE_URL || 'https://your-backend.onrender.com/api/v1';
-} else if (FRONTEND_HOST.includes('.onrender.com')) {
-    // Production on Render
-    API_BASE_URL = window.BUGSENSE_API_BASE_URL || 'https://your-backend.onrender.com/api/v1';
-} else {
-    // Fallback
-    API_BASE_URL = window.BUGSENSE_API_BASE_URL || `${window.location.protocol}//${FRONTEND_HOST}:8000/api/v1`;
+// Fallback detection if runtime-config didn't load
+if (!window.BugSenseConfig) {
+    if (FRONTEND_HOST === 'localhost' || FRONTEND_HOST === '127.0.0.1') {
+        API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
+    } else if (FRONTEND_HOST.includes('.vercel.app')) {
+        API_BASE_URL = 'https://bugsense-ai-backend.onrender.com/api/v1';
+    } else if (FRONTEND_HOST.includes('.onrender.com')) {
+        API_BASE_URL = 'https://bugsense-ai-backend.onrender.com/api/v1';
+    }
 }
 
 API_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
