@@ -1,16 +1,11 @@
 {
   "version": 2,
-  "name": "bugsense-ai-frontend",
-  "builds": [
-    {
-      "src": "index.html",
-      "use": "@vercel/static"
-    }
-  ],
+  "buildCommand": "echo 'No build needed'",
+  "outputDirectory": ".",
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "/$1"
     }
   ],
   "headers": [
