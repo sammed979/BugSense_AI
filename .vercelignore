@@ -11,14 +11,11 @@ local-agent
 _quarantine
 .vscode
 docs
-frontend
 build
 .vercel
 *.log
 .DS_Store
-*.md
-*.py
-*.txt
 render.yaml
 Procfile
 alembic.ini
+backend.zip
