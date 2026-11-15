@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "buildCommand": "echo 'No build needed'",
-  "outputDirectory": ".",
+  "buildCommand": "node build.js",
+  "outputDirectory": "dist",
   "rewrites": [
     {
       "source": "/(.*)",
