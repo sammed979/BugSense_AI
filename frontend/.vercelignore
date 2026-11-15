@@ -1,16 +1,13 @@
-# .vercelignore - Files to exclude from Vercel deployment
-# We only want to deploy from the dist directory
-index.html
-runtime-config.js
-js/
-css/
-build.js
-dev-server.js
-test/
-node_modules/
+# .vercelignore - Patterns to exclude from Vercel deployment
 .git
 .env
 .env.local
 .env.*.local
+node_modules
+build
+.vercel
 *.log
 .DS_Store
+build.js
+dev-server.js
+test/
