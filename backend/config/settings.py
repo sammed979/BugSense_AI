@@ -190,7 +190,7 @@ if production_frontend_url and production_frontend_url not in cors_origins:
     cors_origins += f',{production_frontend_url}'
 CORS_ALLOWED_ORIGINS = cors_origins.split(',')
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'True').lower() == 'true'
+CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False').lower() == 'true'
 
 # AI Configuration (Google AI Studio Gemini)
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', os.environ.get('GOOGLE_API_KEY', ''))
