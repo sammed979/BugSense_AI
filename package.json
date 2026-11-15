@@ -2,10 +2,6 @@
   "name": "bugsense-ai",
   "version": "1.0.0",
   "description": "BugSense AI - Intelligent Code Debugging Platform",
-  "scripts": {
-    "build": "cd frontend && node build.js",
-    "vercel-build": "cd frontend && node build.js"
-  },
   "devDependencies": {},
   "dependencies": {}
 }
