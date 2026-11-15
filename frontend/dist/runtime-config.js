@@ -1,27 +1,23 @@
-// Runtime configuration for BugSense AI
-// Automatically detects environment based on hostname
-const hostname = window.location.hostname;
+(() => {
+    const hostname = window.location.hostname;
 
-let API_BASE_URL = 'http://localhost:8000/api/v1';
-let ENVIRONMENT = 'development';
+    let runtimeApiBaseUrl = 'http://localhost:8000/api/v1';
+    let environment = 'development';
 
-if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    // Local development
-    API_BASE_URL = 'http://localhost:8000/api/v1';
-    ENVIRONMENT = 'development';
-} else if (hostname.includes('.vercel.app')) {
-    // Production on Vercel
-    // Use the actual Render backend URL
-    API_BASE_URL = 'https://bugsense-ai-backend.onrender.com/api/v1';
-    ENVIRONMENT = 'production';
-} else if (hostname.includes('.onrender.com')) {
-    // Production on Render
-    API_BASE_URL = 'https://bugsense-ai-backend.onrender.com/api/v1';
-    ENVIRONMENT = 'production';
-}
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        runtimeApiBaseUrl = 'http://localhost:8000/api/v1';
+        environment = 'development';
+    } else if (hostname.endsWith('.vercel.app')) {
+        runtimeApiBaseUrl = 'https://bugsense-ai-backend.onrender.com/api/v1';
+        environment = 'production';
+    } else if (hostname.endsWith('.onrender.com')) {
+        runtimeApiBaseUrl = 'https://bugsense-ai-backend.onrender.com/api/v1';
+        environment = 'production';
+    }
 
-window.BugSenseConfig = {
-    API_BASE_URL: API_BASE_URL,
-    ENVIRONMENT: ENVIRONMENT,
-    VERSION: '1.0.0'
-};
+    window.BugSenseConfig = Object.freeze({
+        API_BASE_URL: runtimeApiBaseUrl,
+        ENVIRONMENT: environment,
+        VERSION: '1.0.0'
+    });
+})();
