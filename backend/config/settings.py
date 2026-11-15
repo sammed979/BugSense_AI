@@ -18,6 +18,9 @@ import sys
 sys.path.insert(0, str(BASE_DIR / 'services'))
 sys.path.insert(0, str(BASE_DIR / 'sandbox'))
 
+# Prevent Django from forcing trailing slash redirects (can interfere with CORS)
+APPEND_SLASH = False
+
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-dev-key-change-in-production')
