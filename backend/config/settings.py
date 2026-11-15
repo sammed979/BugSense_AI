@@ -25,11 +25,8 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-dev-key-change
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
-# Allowed hosts - always include Render domain in production
-default_hosts = ['localhost', '127.0.0.1']
-if not DEBUG:
-    default_hosts.append('*.onrender.com')
-    default_hosts.append('bugsense-ai-backend.onrender.com')
+# Allowed hosts - always include Render domain
+default_hosts = ['localhost', '127.0.0.1', 'bugsense-ai-backend.onrender.com', '*.onrender.com']
 
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', ','.join(default_hosts)).split(',')
 
