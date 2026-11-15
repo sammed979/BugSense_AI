@@ -30,8 +30,15 @@ def api_info(request):
     })
 
 
+def health_check(request):
+    """Health check endpoint for Render."""
+    from django.http import HttpResponse
+    return HttpResponse('OK', status=200)
+
+
 urlpatterns = [
     path('', api_info, name='api_info'),
+    path('health/', health_check, name='health_check'),
     path('admin/', admin.site.urls),
     path('api/v1/auth/', include('apps.accounts.urls')),
     path('api/v1/dashboard/', include('apps.dashboard.urls')),
