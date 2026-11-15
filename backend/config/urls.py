@@ -11,27 +11,31 @@ from django.http import JsonResponse
 def api_info(request):
     """API info endpoint at root."""
     from django.http import HttpResponse
-    # HEAD requests should not return a body
+    # Handle HEAD requests
     if request.method == 'HEAD':
         return HttpResponse(status=200)
-    return JsonResponse({
-        'name': 'BugSense AI API',
-        'version': '1.0.0',
-        'description': 'AI-powered autonomous debugging platform',
-        'endpoints': {
-            'auth': '/api/v1/auth/',
-            'dashboard': '/api/v1/dashboard/',
-            'projects': '/api/v1/projects/',
-            'analysis': '/api/v1/analysis/',
-            'repair': '/api/v1/repair/',
-            'execution': '/api/v1/execution/',
-            'verification': '/api/v1/verification/',
-            'history': '/api/v1/history/',
-            'learning': '/api/v1/learning/',
-        },
-        'frontend': 'http://127.0.0.1:5173',
-        'documentation': 'Visit /api/v1/ for available endpoints'
-    })
+    # Handle GET requests
+    if request.method == 'GET':
+        return JsonResponse({
+            'name': 'BugSense AI API',
+            'version': '1.0.0',
+            'description': 'AI-powered autonomous debugging platform',
+            'endpoints': {
+                'auth': '/api/v1/auth/',
+                'dashboard': '/api/v1/dashboard/',
+                'projects': '/api/v1/projects/',
+                'analysis': '/api/v1/analysis/',
+                'repair': '/api/v1/repair/',
+                'execution': '/api/v1/execution/',
+                'verification': '/api/v1/verification/',
+                'history': '/api/v1/history/',
+                'learning': '/api/v1/learning/',
+            },
+            'frontend': 'http://127.0.0.1:5173',
+            'documentation': 'Visit /api/v1/ for available endpoints'
+        })
+    # Reject other methods
+    return HttpResponse(status=405)
 
 
 def health_check(request):
