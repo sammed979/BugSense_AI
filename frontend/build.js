@@ -4,8 +4,8 @@ const path = require('path');
 // Simple build script to copy files to dist directory
 // This prevents Vercel from minifying JavaScript files
 
-const sourceDir = __dirname;
-const distDir = path.join(__dirname, 'dist');
+const scriptDir = __dirname;
+const distDir = path.join(scriptDir, 'dist');
 
 // Create dist directory if it doesn't exist
 if (!fs.existsSync(distDir)) {
@@ -14,13 +14,13 @@ if (!fs.existsSync(distDir)) {
 
 // Copy HTML
 fs.copyFileSync(
-    path.join(sourceDir, 'index.html'),
+    path.join(scriptDir, 'index.html'),
     path.join(distDir, 'index.html')
 );
 
 // Copy runtime-config.js
 fs.copyFileSync(
-    path.join(sourceDir, 'runtime-config.js'),
+    path.join(scriptDir, 'runtime-config.js'),
     path.join(distDir, 'runtime-config.js')
 );
 
@@ -34,7 +34,7 @@ if (!fs.existsSync(jsDistDir)) {
 const jsFiles = ['auth.js', 'api.js', 'app.js', 'clipboard.js'];
 jsFiles.forEach(file => {
     fs.copyFileSync(
-        path.join(sourceDir, 'js', file),
+        path.join(scriptDir, 'js', file),
         path.join(jsDistDir, file)
     );
 });
@@ -47,7 +47,7 @@ if (!fs.existsSync(cssDistDir)) {
 
 // Copy CSS
 fs.copyFileSync(
-    path.join(sourceDir, 'css', 'style.css'),
+    path.join(scriptDir, 'css', 'style.css'),
     path.join(cssDistDir, 'style.css')
 );
 

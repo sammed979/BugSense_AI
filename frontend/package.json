@@ -2,6 +2,9 @@
   "name": "bugsense-ai-frontend",
   "version": "1.0.0",
   "description": "BugSense AI Frontend",
+  "scripts": {
+    "build": "node build.js"
+  },
   "devDependencies": {},
   "dependencies": {}
 }
