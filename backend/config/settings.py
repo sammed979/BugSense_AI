@@ -57,13 +57,14 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # For production static file serving
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # For production static file serving
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -185,7 +186,7 @@ production_frontend_url = os.environ.get('FRONTEND_URL', '')
 if production_frontend_url and production_frontend_url not in cors_origins:
     cors_origins += f',{production_frontend_url}'
 CORS_ALLOWED_ORIGINS = cors_origins.split(',')
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False  # JWT auth doesn't need credentials
 CORS_ALLOW_ALL_ORIGINS = False  # Always False for security
 CORS_ALLOW_HEADERS = [
     'content-type',
@@ -201,7 +202,8 @@ CORS_ALLOW_METHODS = [
     'PATCH',
     'DELETE',
 ]
-# Disable CSRF for API endpoints (JWT authentication doesn't need CSRF)
+# CSRF Configuration (for session auth if used later)
+CSRF_TRUSTED_ORIGINS = cors_origins.split(',')
 CSRF_COOKIE_SECURE = False
 CSRF_COOKIE_HTTPONLY = False
 
