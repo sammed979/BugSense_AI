@@ -4,10 +4,12 @@
 .env.local
 .env.*.local
 node_modules
+backend
 build
 .vercel
 *.log
 .DS_Store
-build.js
-dev-server.js
-test/
+frontend/node_modules
+frontend/build.js
+frontend/dev-server.js
+frontend/test/
