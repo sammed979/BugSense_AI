@@ -183,7 +183,7 @@ SIMPLE_JWT = {
 }
 
 # CORS Configuration
-cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173')
+cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,https://bugsenseai-frontend.vercel.app')
 # Add production frontend URL if available
 production_frontend_url = os.environ.get('FRONTEND_URL', '')
 if production_frontend_url and production_frontend_url not in cors_origins:

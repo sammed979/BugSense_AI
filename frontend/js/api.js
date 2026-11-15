@@ -1,21 +1,6 @@
 // API Client Module
-const FRONTEND_HOST = window.location.hostname;
-
-// Use API_BASE_URL from runtime-config.js
-let API_BASE_URL = window.BugSenseConfig?.API_BASE_URL || 'http://127.0.0.1:8000/api/v1';
-
-// Fallback detection if runtime-config didn't load
-if (!window.BugSenseConfig) {
-    if (FRONTEND_HOST === 'localhost' || FRONTEND_HOST === '127.0.0.1') {
-        API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
-    } else if (FRONTEND_HOST.includes('.vercel.app')) {
-        API_BASE_URL = 'https://bugsense-ai-backend.onrender.com/api/v1';
-    } else if (FRONTEND_HOST.includes('.onrender.com')) {
-        API_BASE_URL = 'https://bugsense-ai-backend.onrender.com/api/v1';
-    }
-}
-
-API_BASE_URL = API_BASE_URL.replace(/\/+$/, '');
+// API_BASE_URL is defined in runtime-config.js and stored in window.BugSenseConfig
+const API_BASE_URL = window.BugSenseConfig?.API_BASE_URL || 'http://127.0.0.1:8000/api/v1';
 
 class APIClient {
     constructor() {
