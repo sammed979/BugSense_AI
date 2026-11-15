@@ -10,6 +10,10 @@ from django.http import JsonResponse
 
 def api_info(request):
     """API info endpoint at root."""
+    from django.http import HttpResponse
+    # HEAD requests should not return a body
+    if request.method == 'HEAD':
+        return HttpResponse(status=200)
     return JsonResponse({
         'name': 'BugSense AI API',
         'version': '1.0.0',
@@ -33,6 +37,9 @@ def api_info(request):
 def health_check(request):
     """Health check endpoint for Render."""
     from django.http import HttpResponse
+    # HEAD requests should not return a body
+    if request.method == 'HEAD':
+        return HttpResponse(status=200)
     return HttpResponse('OK', status=200)
 
 
