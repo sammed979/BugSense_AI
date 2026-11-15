@@ -1,3 +1,11 @@
-{
-  "version": 2
-}
+# .vercelignore - Patterns to exclude from Vercel deployment
+.git
+.env
+.env.local
+.env.*.local
+node_modules
+dist
+build
+.vercel
+*.log
+.DS_Store
