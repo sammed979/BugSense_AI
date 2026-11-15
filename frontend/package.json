@@ -1,11 +1,11 @@
 {
   "name": "bugsense-ai-frontend",
   "version": "1.0.0",
-  "private": true,
-  "description": "Static BugSense AI browser client",
+  "description": "BugSense AI Frontend",
   "scripts": {
-    "dev": "node dev-server.js",
-    "start": "node dev-server.js",
-    "test": "node --test"
-  }
+    "build": "node build.js",
+    "vercel-build": "node build.js"
+  },
+  "devDependencies": {},
+  "dependencies": {}
 }
