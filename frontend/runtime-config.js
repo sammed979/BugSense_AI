@@ -8,10 +8,10 @@
         runtimeApiBaseUrl = 'http://localhost:8000/api/v1';
         environment = 'development';
     } else if (hostname.endsWith('.vercel.app')) {
-        runtimeApiBaseUrl = 'https://bugsense-ai-backend.onrender.com/api/v1';
+        runtimeApiBaseUrl = 'https://bugsense-ai-mulk.onrender.com/api/v1';
         environment = 'production';
     } else if (hostname.endsWith('.onrender.com')) {
-        runtimeApiBaseUrl = 'https://bugsense-ai-backend.onrender.com/api/v1';
+        runtimeApiBaseUrl = 'https://bugsense-ai-mulk.onrender.com/api/v1';
         environment = 'production';
     }
 
