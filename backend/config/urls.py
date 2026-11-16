@@ -11,7 +11,7 @@ from django.http import JsonResponse
 def api_info(request):
     """API info endpoint at root."""
     from django.http import HttpResponse
-    # Handle HEAD requests
+    # Handle HEAD requests - return 200 without body for health checks
     if request.method == 'HEAD':
         return HttpResponse(status=200)
     # Handle GET requests
