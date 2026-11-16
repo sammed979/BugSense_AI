@@ -92,20 +92,17 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 
 # Database
-# Default to SQLite for local development
-database_engine = os.environ.get('DATABASE_ENGINE', 'sqlite')
+# Use PostgreSQL DATABASE_URL if available (Render), otherwise SQLite for local development
+import dj_database_url
 
-if database_engine == 'postgresql':
+if 'DATABASE_URL' in os.environ:
     # PostgreSQL configuration for production (Render PostgreSQL)
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('DB_NAME', 'bugsense'),
-            'USER': os.environ.get('DB_USER', 'bugsense'),
-            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-            'HOST': os.environ.get('DB_HOST', 'localhost'),
-            'PORT': os.environ.get('DB_PORT', '5432'),
-        }
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL'),
+            conn_max_age=600,
+            conn_health_checks=True
+        )
     }
 else:
     # SQLite for local development
