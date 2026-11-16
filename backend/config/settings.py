@@ -93,9 +93,8 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
 # Use PostgreSQL DATABASE_URL if available (Render), otherwise SQLite for local development
-import dj_database_url
-
 if 'DATABASE_URL' in os.environ:
+    import dj_database_url
     # PostgreSQL configuration for production (Render PostgreSQL)
     DATABASES = {
         'default': dj_database_url.config(
