@@ -4,7 +4,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import UserRegistrationSerializer, UserSerializer, AIProviderSettingsSerializer
-from .models import AIProviderSettings
+from .models import AIProviderSettings, DEFAULT_AI_PROVIDER_SETTINGS
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
@@ -40,8 +40,10 @@ class AIProviderSettingsView(generics.RetrieveUpdateAPIView):
     permission_classes = (IsAuthenticated,)
 
     def get_object(self):
-        defaults = {'mode': 'gemini', 'primary_provider': 'gemini', 'secondary_provider': 'openai', 'automatic_fallback': False}
-        return AIProviderSettings.objects.get_or_create(user=self.request.user, defaults=defaults)[0]
+        return AIProviderSettings.objects.get_or_create(
+            user=self.request.user,
+            defaults=DEFAULT_AI_PROVIDER_SETTINGS,
+        )[0]
 
     def _status(self, response):
         # Expose readiness only. Credential values always remain server-side.

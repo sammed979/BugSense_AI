@@ -699,24 +699,61 @@ function renderWorkspace() {
         </div>
     `;
 
-    window.api.getAIHealth().then((health) => {
+    let providerPreferences = null;
+    let providerHealthStatus = 'unknown';
+    let runnerStatus = 'unknown';
+    const updateProviderStatus = () => {
         const state = document.getElementById('ai-provider-status');
-        if (state) {
-            const ai = health.ai || {};
-            const runner = health.execution?.status || 'unknown';
-            state.textContent = `${ai.provider || 'AI'} ${ai.status || 'unavailable'} · runner ${runner}`;
-            state.title = `Backend ${health.backend?.status || 'unknown'} · Static analyzer ${health.static_analyzer?.status || 'unknown'} · ${ai.model || 'No model selected'}`;
+        if (!state) return;
+        if (!providerPreferences) {
+            state.textContent = `Checking provider settings · runner ${runnerStatus}`;
+            return;
         }
+
+        const readiness = providerPreferences.provider_status || {};
+        const mode = providerPreferences.mode;
+        const primary = providerPreferences.primary_provider;
+        const secondary = providerPreferences.secondary_provider;
+        const label = (provider) => ({ gemini: 'Gemini', openai: 'OpenAI', local: 'Local Repair Engine' }[provider] || provider);
+
+        if (mode === 'local') {
+            state.textContent = `Local Repair Engine ready · runner ${runnerStatus}`;
+        } else if (mode === 'automatic' && readiness[primary] !== true
+            && providerPreferences.automatic_fallback && readiness[secondary] === true) {
+            state.textContent = `${label(primary)} unavailable · ${label(secondary)} fallback configured · runner ${runnerStatus}`;
+        } else {
+            const provider = mode === 'automatic' ? primary : mode;
+            const providerState = readiness[provider] === true
+                ? 'configured'
+                : readiness[provider] === false ? 'not configured' : 'status unknown';
+            const alternativeHint = mode === 'openai' && providerHealthStatus === 'reachable'
+                ? ' · Gemini reachable; switch above'
+                : '';
+            state.textContent = `${label(provider)} ${providerState}${alternativeHint} · runner ${runnerStatus}`;
+        }
+        state.title = `Selected mode: ${mode}. Gemini health: ${providerHealthStatus}. API-key status shows configuration only, not quota or model access.`;
+    };
+
+    window.api.getAIHealth().then((health) => {
+        providerHealthStatus = health.ai?.status || 'unavailable';
+        runnerStatus = health.execution?.status || 'unknown';
+        updateProviderStatus();
     }).catch(() => {});
     window.api.getAIProviderSettings().then((prefs) => {
+        providerPreferences = prefs;
         const select = document.getElementById('ai-provider-select');
         if (select) select.value = prefs.mode;
+        updateProviderStatus();
     }).catch(() => {});
     document.getElementById('ai-provider-select')?.addEventListener('change', async (event) => {
-        try { await window.api.updateAIProviderSettings({ mode: event.target.value }); }
+        try {
+            providerPreferences = await window.api.updateAIProviderSettings({ mode: event.target.value });
+            updateProviderStatus();
+        }
         catch (error) {
             const state = document.getElementById('ai-provider-status');
             if (state) state.textContent = `Could not save provider: ${error.message}`;
+            if (providerPreferences) event.target.value = providerPreferences.mode;
         }
     });
     loadWorkspaceProjects();

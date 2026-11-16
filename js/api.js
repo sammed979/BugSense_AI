@@ -78,6 +78,7 @@ class APIClient {
             timeout: 'The selected provider did not respond before timeout. Your original code is unchanged.',
             network: 'The selected provider could not be reached. Your original code is unchanged.',
             malformed_response: 'The provider returned a repair that could not be validated. Your original code is unchanged.',
+            provider_error: 'The selected provider failed unexpectedly. Check its configured key, model access, and quota; your original code is unchanged.',
         };
         if (data?.error_type && providerErrors[data.error_type]) return new Error(providerErrors[data.error_type]);
         if (response.status === 401) return new Error('Your session has expired. Please log in again.');
@@ -87,7 +88,12 @@ class APIClient {
             return new Error(`${operation} API endpoint was not found. Check that Django is running this project version and restart it from the backend folder.`);
         }
         if (response.status === 413) return new Error('The log is too large. LogSense accepts up to 100,000 characters or a 1 MB text file.');
-        if (response.status === 502) return new Error('The AI provider could not complete the explanation request. Your original log remains unchanged.');
+        if (response.status === 502) {
+            if (operation === 'Repair' || operation === 'Quick Fix') {
+                return new Error('The selected AI provider could not generate a repair. Check its key, model access, and quota; your original code remains unchanged.');
+            }
+            return new Error('The AI provider could not complete the explanation request. Your original log remains unchanged.');
+        }
         if (response.status === 400) {
             if (operation === 'LogSense' && typeof data?.error === 'string' && data.error.trim()) return new Error(data.error);
             return new Error(this.validationErrorMessage(data, 'Please check the information you entered.'));
