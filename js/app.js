@@ -344,12 +344,12 @@ function renderLogin() {
                     <form id="login-form" class="auth-form">
                         <div id="login-message" role="alert" aria-live="polite"></div>
                         <div class="form-group">
-                            <label>Username</label>
-                            <input type="text" id="username" required placeholder="Enter your username">
+                            <label for="username">Username</label>
+                            <input type="text" id="username" name="username" autocomplete="username" required placeholder="Enter your username">
                         </div>
                         <div class="form-group">
-                            <label>Password</label>
-                            <input type="password" id="password" required placeholder="Enter your password">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" name="password" autocomplete="current-password" required placeholder="Enter your password">
                         </div>
                         <button type="submit">Login</button>
                         <div class="auth-footer">
@@ -401,20 +401,20 @@ function renderRegister() {
                     <form id="register-form" class="auth-form">
                         <div id="register-message" role="alert" aria-live="polite"></div>
                         <div class="form-group">
-                            <label>Username</label>
-                            <input type="text" id="username" required placeholder="Choose a username">
+                            <label for="username">Username</label>
+                            <input type="text" id="username" name="username" autocomplete="username" required placeholder="Choose a username">
                         </div>
                         <div class="form-group">
-                            <label>Email</label>
-                            <input type="email" id="email" required placeholder="Enter your email">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" name="email" autocomplete="email" required placeholder="Enter your email">
                         </div>
                         <div class="form-group">
-                            <label>Password</label>
-                            <input type="password" id="password" required placeholder="Choose a password">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" name="password" autocomplete="new-password" required placeholder="Choose a password">
                         </div>
                         <div class="form-group">
-                            <label>Confirm password</label>
-                            <input type="password" id="confirm-password" required placeholder="Enter your password again">
+                            <label for="confirm-password">Confirm password</label>
+                            <input type="password" id="confirm-password" name="confirm-password" autocomplete="new-password" required placeholder="Enter your password again">
                         </div>
                         <button type="submit">Register</button>
                         <div class="auth-footer">
