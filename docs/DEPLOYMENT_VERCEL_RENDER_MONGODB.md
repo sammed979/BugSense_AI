@@ -62,14 +62,16 @@ This guide explains how to deploy BugSense AI to production using:
 3. Click "New" → "Web Service"
 4. Connect your GitHub repository
 5. Configure the web service:
-   - **Name**: `bugsense-ai-backend`
+   - **Name**: Use the existing backend service name.
    - **Branch**: `master`
    - **Root Directory**: `backend`
    - **Runtime**: Python 3
 6. Set the service commands:
    - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120`
-   - Add the Render PostgreSQL `DATABASE_URL` environment variable.
+   - **Pre-Deploy Command**, when available: `python manage.py migrate_locked --noinput && python manage.py database_diagnostics`
+   - **Start Command**: `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120`
+   - Attach the Render PostgreSQL database so `DATABASE_URL` is available to the service.
+   - If Pre-Deploy Command is unavailable, use `python manage.py migrate_locked --noinput && python manage.py database_diagnostics && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120` as the Start Command.
 7. Add additional environment variables (click "Advanced" → "Add Environment Variable"):
    ```
    DJANGO_SECRET_KEY=<generate-a-random-key>
@@ -92,7 +94,7 @@ This guide explains how to deploy BugSense AI to production using:
    ```
 8. Click "Create Web Service"
 9. Wait for deployment (first deployment takes ~5-10 minutes)
-10. Copy your backend URL (e.g., `https://bugsense-ai-backend.onrender.com`)
+10. Copy the backend URL shown by Render and use that same URL in the frontend configuration.
 
 **Note**: PostgreSQL credentials are automatically injected by Render from the database you created in Step 1.
 
@@ -137,13 +139,18 @@ Option 2: Update in code
 3. Commit and push to GitHub
 4. Vercel will auto-deploy
 
-## Step 3: Run Migrations
+## Safe Database Migrations
 
-Migrations must run against the production database before Gunicorn starts. Set the
-Render service **Start Command** to the command above, then deploy. For an existing
-service, update **Settings → Build & Deploy → Start Command** and trigger a deploy.
-Do not run database migrations in the build command because the build environment
-should not perform production database changes.
+For an existing service, configure **Settings → Build & Deploy → Pre-Deploy Command**
+to run `python manage.py migrate_locked --noinput && python manage.py database_diagnostics`.
+Pre-deploy runs once before the new instance serves traffic. If the service plan does
+not offer that field, put both commands before Gunicorn in **Start Command** instead.
+The PostgreSQL advisory lock serializes migrations if multiple instances start together.
+Do not run migrations in the build command.
+
+The diagnostics command logs only the database engine, connection result, active user
+model/table, and migration counts. It never prints `DATABASE_URL` or credentials.
+`GET /health/` is a process health check and does not disclose database details.
 
 ## Environment Variables Reference
 
@@ -154,12 +161,7 @@ should not perform production database changes.
 | `DJANGO_SECRET_KEY` | Yes | Django secret key | Generate with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"` |
 | `DJANGO_DEBUG` | Yes | Debug mode | `False` |
 | `DJANGO_ALLOWED_HOSTS` | Yes | Allowed hosts | `*.onrender.com` |
-| `DATABASE_ENGINE` | Yes | Database type | `postgresql` |
-| `DB_NAME` | Auto | Database name (from Render) | `bugsense` |
-| `DB_USER` | Auto | Database user (from Render) | `bugsense` |
-| `DB_PASSWORD` | Auto | Database password (from Render) | Auto-generated |
-| `DB_HOST` | Auto | Database host (from Render) | Auto-generated |
-| `DB_PORT` | Auto | Database port (from Render) | `5432` |
+| `DATABASE_URL` | Yes | Render PostgreSQL connection URL | Set by the attached Render database |
 | `FRONTEND_URL` | Yes | Frontend URL for CORS | `https://bugsense.vercel.app` |
 | `CORS_ALLOWED_ORIGINS` | Yes | CORS origins | `https://bugsense.vercel.app` |
 | `CORS_ALLOW_ALL_ORIGINS` | Yes | Allow all origins | `False` |

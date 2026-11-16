@@ -1,0 +1,55 @@
+name: PostgreSQL authentication checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  postgres-auth:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bugsense
+          POSTGRES_PASSWORD: bugsense
+          POSTGRES_DB: bugsense_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bugsense -d bugsense_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://bugsense:bugsense@127.0.0.1:5432/bugsense_test
+      DJANGO_DEBUG: "False"
+      DJANGO_SECRET_KEY: ci-only-not-a-production-secret
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check Django and PostgreSQL selection
+        run: |
+          python manage.py check
+          python manage.py shell -c "from django.db import connection; assert connection.vendor == 'postgresql'; print('CI_DATABASE_ENGINE=postgresql')"
+          python manage.py showmigrations --plan
+      - name: Apply migrations with deployment lock
+        run: python manage.py migrate_locked --noinput
+      - name: Verify database schema without exposing credentials
+        run: python manage.py database_diagnostics
+      - name: Verify migrations and authentication flows
+        run: |
+          python manage.py migrate --check
+          python manage.py test apps.accounts.tests tests.test_health tests.test_production_database_settings

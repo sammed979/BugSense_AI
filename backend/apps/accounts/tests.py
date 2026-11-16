@@ -35,6 +35,43 @@ class RegistrationFlowTests(APITestCase):
         self.assertIn('access', login.data)
         self.assertIn('refresh', login.data)
 
+    def test_invalid_password_does_not_issue_tokens(self):
+        User.objects.create_user(username='login-user', password=VALID_PASSWORD)
+        response = self.client.post(LOGIN_URL, {
+            'username': 'login-user',
+            'password': 'incorrect-password',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn('access', response.data)
+
+    def test_jwt_protects_profile_and_logout_preserves_later_login(self):
+        User.objects.create_user(
+            username='jwt-user',
+            email='jwt-user@example.test',
+            password=VALID_PASSWORD,
+        )
+        login = self.client.post(LOGIN_URL, {
+            'username': 'jwt-user',
+            'password': VALID_PASSWORD,
+        }, format='json')
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+        access_token = login.data['access']
+        self.assertTrue(login.data['refresh'])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
+        profile = self.client.get('/api/v1/auth/me/')
+        self.assertEqual(profile.status_code, status.HTTP_200_OK)
+        self.assertEqual(profile.data['username'], 'jwt-user')
+
+        logout = self.client.post('/api/v1/auth/logout/', {}, format='json')
+        self.assertEqual(logout.status_code, status.HTTP_200_OK)
+        self.client.credentials()
+        second_login = self.client.post(LOGIN_URL, {
+            'username': 'jwt-user',
+            'password': VALID_PASSWORD,
+        }, format='json')
+        self.assertEqual(second_login.status_code, status.HTTP_200_OK)
+
     def test_duplicate_email_is_rejected_case_insensitively(self):
         self.client.post(REGISTER_URL, self.payload(), format='json')
         response = self.client.post(REGISTER_URL, self.payload(

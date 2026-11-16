@@ -39,14 +39,9 @@ DJANGO_SECRET_KEY=your-secret-key-here
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=yourdomain.com,localhost
 
-# Database (SQLite for development, PostgreSQL for production)
-# SQLite (default - no configuration needed)
-# PostgreSQL (uncomment and configure):
-# DB_NAME=bugsense
-# DB_USER=bugsense
-# DB_PASSWORD=your-password
-# DB_HOST=localhost
-# DB_PORT=5432
+# Local development: omit DATABASE_URL to use SQLite with DEBUG=True.
+# Render production: DATABASE_URL must be the attached PostgreSQL database URL.
+# Never commit DATABASE_URL or print it in logs.
 
 # AI Provider Configuration
 OPENAI_API_KEY=your-openai-api-key
@@ -81,38 +76,19 @@ window.BugSenseConfig = {
 ## Database Setup
 
 ### Development (SQLite)
-SQLite is configured by default. No additional setup needed.
+With `DEBUG=True` and no `DATABASE_URL`, SQLite is used for local development.
 
 ### Production (PostgreSQL)
 
-1. Create database:
-```sql
-CREATE DATABASE bugsense;
-CREATE USER bugsense WITH PASSWORD 'your-password';
-GRANT ALL PRIVILEGES ON DATABASE bugsense TO bugsense;
-```
-
-2. Update `backend/.env` with PostgreSQL credentials
-
-3. Update `backend/config/settings.py`:
-```python
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'bugsense'),
-        'USER': os.environ.get('DB_USER', 'bugsense'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '5432'),
-    }
-}
-```
-
-4. Run migrations:
-```bash
-cd backend
-python manage.py migrate
-```
+1. Attach the Render PostgreSQL database to the backend service and ensure Render
+   provides its `DATABASE_URL` environment variable.
+2. The Django settings parse `DATABASE_URL` with `dj-database-url` and require
+   PostgreSQL on Render. The app fails to start rather than silently using SQLite
+   when a Render database URL is missing or is not PostgreSQL.
+3. Configure the Render Pre-Deploy Command as
+   `python manage.py migrate_locked --noinput && python manage.py database_diagnostics`.
+   If Pre-Deploy is unavailable, use the migration and diagnostic commands before
+   Gunicorn in the Start Command.
 
 ---
 
@@ -170,7 +146,7 @@ pip install gunicorn
 2. Run Gunicorn:
 ```bash
 cd backend
-gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4
+python manage.py migrate_locked --noinput && python manage.py database_diagnostics && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4
 ```
 
 **Using Nginx:**

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,8 +27,9 @@ APPEND_SLASH = False
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-dev-key-change-in-production')
 
 # SECURITY WARNING: don't run with debug turned on in production!
+IS_RENDER = os.environ.get('RENDER', '').strip().lower() == 'true'
 debug_setting = os.environ.get('DJANGO_DEBUG', os.environ.get('DEBUG', 'False'))
-DEBUG = debug_setting.strip().lower() in {'1', 'true', 'yes', 'on'}
+DEBUG = not IS_RENDER and debug_setting.strip().lower() in {'1', 'true', 'yes', 'on'}
 
 # Allowed hosts - always include Render domain
 default_hosts = ['localhost', '127.0.0.1', 'bugsense-ai-backend.onrender.com', 'bugsense-ai-mulk.onrender.com', '*.onrender.com']
@@ -92,20 +94,24 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 
-# Database
-# Use PostgreSQL DATABASE_URL if available (Render), otherwise SQLite for local development
-if 'DATABASE_URL' in os.environ:
+# Database: Render must use its PostgreSQL DATABASE_URL; SQLite is local-only.
+database_url = os.environ.get('DATABASE_URL', '').strip()
+
+if database_url:
     import dj_database_url
-    # PostgreSQL configuration for production (Render PostgreSQL)
-    DATABASES = {
-        'default': dj_database_url.config(
-            default=os.environ.get('DATABASE_URL'),
-            conn_max_age=600,
-            conn_health_checks=True
-        )
-    }
+
+    database_config = dj_database_url.parse(
+        database_url,
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
+    if IS_RENDER and database_config['ENGINE'] != 'django.db.backends.postgresql':
+        raise ImproperlyConfigured('Render deployments require DATABASE_URL to use PostgreSQL.')
+    DATABASES = {'default': database_config}
+elif IS_RENDER or not DEBUG:
+    raise ImproperlyConfigured('DATABASE_URL is required outside local DEBUG mode.')
 else:
-    # SQLite for local development
+    # SQLite is only the development fallback.
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',

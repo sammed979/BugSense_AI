@@ -40,10 +40,10 @@ def api_info(request):
 
 def health_check(request):
     """Health check endpoint for Render."""
-    from django.http import HttpResponse
-    # Both HEAD and GET return simple 200 without body for health checks
-    # This avoids "WSGI app sent body bytes on a no-body response" errors
-    return HttpResponse(status=200)
+    return JsonResponse({
+        'status': 'ok',
+        'service': 'BugSense AI Backend',
+    })
 
 
 urlpatterns = [
