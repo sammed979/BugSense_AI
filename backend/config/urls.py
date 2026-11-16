@@ -40,11 +40,12 @@ def api_info(request):
 
 def health_check(request):
     """Health check endpoint for Render."""
-    from django.http import HttpResponse
+    from django.http import HttpResponse, JsonResponse
     # HEAD requests should not return a body
     if request.method == 'HEAD':
         return HttpResponse(status=200)
-    return HttpResponse('OK', status=200)
+    # GET requests return JSON status
+    return JsonResponse({'status': 'ok', 'service': 'BugSense AI Backend'}, status=200)
 
 
 urlpatterns = [
