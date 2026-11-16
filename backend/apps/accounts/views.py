@@ -4,7 +4,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import UserRegistrationSerializer, UserSerializer, AIProviderSettingsSerializer
-from .models import AIProviderSettings, DEFAULT_AI_PROVIDER_SETTINGS
+from .models import AIProviderSettings, default_ai_provider_settings
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
@@ -42,7 +42,7 @@ class AIProviderSettingsView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return AIProviderSettings.objects.get_or_create(
             user=self.request.user,
-            defaults=DEFAULT_AI_PROVIDER_SETTINGS,
+            defaults=default_ai_provider_settings(),
         )[0]
 
     def _status(self, response):

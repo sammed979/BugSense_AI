@@ -195,6 +195,10 @@ production_frontend_url = os.environ.get('FRONTEND_URL', '')
 if production_frontend_url and production_frontend_url not in cors_origins:
     cors_origins += f',{production_frontend_url}'
 CORS_ALLOWED_ORIGINS = cors_origins.split(',')
+# Allow only deployments belonging to this Vercel project, not arbitrary previews.
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://bugsenseai-frontend-[a-z0-9-]+\.vercel\.app$',
+]
 CORS_ALLOW_CREDENTIALS = False  # JWT auth doesn't need credentials
 # In DEBUG mode, allow all origins to support Vercel preview deployments
 if DEBUG:
@@ -223,7 +227,11 @@ CSRF_COOKIE_HTTPONLY = False
 # AI Configuration (Google AI Studio Gemini)
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', os.environ.get('GOOGLE_API_KEY', ''))
 GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
-AI_PROVIDER = os.environ.get('AI_PROVIDER', 'gemini')
+DEFAULT_LLM_PROVIDER = os.environ.get('DEFAULT_LLM_PROVIDER', 'openai').strip().lower()
+if DEFAULT_LLM_PROVIDER not in {'openai', 'gemini'}:
+    raise ImproperlyConfigured('DEFAULT_LLM_PROVIDER must be either openai or gemini.')
+ENABLE_LLM_FALLBACK = os.environ.get('ENABLE_LLM_FALLBACK', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
+AI_PROVIDER = os.environ.get('AI_PROVIDER', DEFAULT_LLM_PROVIDER)
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o')
 

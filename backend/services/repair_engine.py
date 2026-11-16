@@ -8,6 +8,8 @@ import asyncio
 import ast
 import json
 import difflib
+from services.openai_client import create_chat_completion
+from services.repair_diagnostics import log_provider_exception
 
 try:
     from openai import AsyncOpenAI
@@ -128,14 +130,11 @@ class RepairEngine:
         diagnosis: Dict[str, Any],
         language: str,
         api_key: str,
-        model: str
+        model: str,
+        request_id: str = ''
     ) -> Dict[str, Any]:
         """Generate repair using OpenAI."""
         try:
-            # Use synchronous client wrapped in asyncio.to_thread to avoid httpx cleanup issues
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key, max_retries=0, timeout=35.0)
-
             prompt = f"""Fix this programming error.
 
 Language: {language}
@@ -151,20 +150,26 @@ Source Code:
 
 Provide ONLY the fixed code, no explanations. Output just the corrected source code."""
 
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.chat.completions.create,
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": "You are a code debugging expert. Always respond with valid code only."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.3,
-                ),
+            response = await create_chat_completion(
+                api_key,
                 timeout=35.0,
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a code debugging expert. Always respond with valid code only."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
             )
 
-            repaired_code = response.choices[0].message.content.strip()
+            content = response.choices[0].message.content
+            if not isinstance(content, str) or not content.strip():
+                return {
+                    'error': 'OpenAI returned an empty repair response.',
+                    'error_type': 'malformed_response',
+                    'repaired_code': source_code,
+                    'source': 'error',
+                }
+            repaired_code = content.strip()
 
             # Remove markdown code blocks if present
             if repaired_code.startswith('```'):
@@ -203,10 +208,18 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
 
         except Exception as e:
             from .ai_service import AIService
+            log_provider_exception(
+                request_id,
+                'openai',
+                'repair_generation',
+                e,
+                sensitive_values=(source_code, error_message, api_key),
+            )
             message = str(e).replace(api_key, '[REDACTED]') if api_key else str(e)
+            error_type = 'timeout' if isinstance(e, (asyncio.TimeoutError, TimeoutError)) else AIService._classify_provider_error(message)
             return {
-                'error': f'OpenAI repair failed: {AIService._classify_provider_error(message)}',
-                'error_type': AIService._classify_provider_error(message),
+                'error': f'OpenAI repair failed: {error_type}',
+                'error_type': error_type,
                 'repaired_code': source_code,
                 'source': 'error'
             }
@@ -219,7 +232,8 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
         language: str,
         api_key: str,
         model: str,
-        traceback_text: str = ''
+        traceback_text: str = '',
+        request_id: str = ''
     ) -> Dict[str, Any]:
         """Generate repair using Google Gemini."""
         try:
@@ -260,19 +274,20 @@ Do not omit unchanged portions of the source file. Do not include markdown fence
                 },
                 'required': ['repaired_code', 'explanation'],
             }
-            # Use synchronous client to avoid async cleanup issues
-            client = genai.Client(api_key=api_key, http_options=http_options)
+            def generate_content():
+                with genai.Client(api_key=api_key, http_options=http_options) as client:
+                    return client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.2,
+                            response_mime_type='application/json',
+                            response_schema=schema,
+                        ),
+                    )
+
             response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.models.generate_content,
-                    model=model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=0.2,
-                        response_mime_type='application/json',
-                        response_schema=schema,
-                    ),
-                ),
+                asyncio.to_thread(generate_content),
                 timeout=timeout_seconds,
             )
 
@@ -371,6 +386,13 @@ Do not omit unchanged portions of the source file. Do not include markdown fence
         except Exception as e:
             # Keep provider errors distinct so clients can explain actionable failures.
             message = str(e).replace(api_key, '[REDACTED]') if api_key else str(e)
+            log_provider_exception(
+                request_id,
+                'gemini',
+                'repair_generation',
+                e,
+                sensitive_values=(source_code, error_message, traceback_text, api_key),
+            )
             lowered = message.lower()
             if any(term in lowered for term in ('401', '403', 'unauthorized', 'api key', 'permission denied', 'invalid_argument')):
                 error_type = 'authentication'

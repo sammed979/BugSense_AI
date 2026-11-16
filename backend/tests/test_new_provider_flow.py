@@ -28,13 +28,21 @@ class ProviderRepairTests(TestCase):
         self.assertEqual((exit_code, stderr), (0, ''))
         self.assertEqual(stdout.splitlines(), ['Final Price: 900.0', 'Average: 20.0'])
 
-    def test_new_router_preferences_default_to_gemini(self):
+    def test_new_router_preferences_default_to_openai(self):
+        prefs = settings_for(self.user)
+
+        self.assertEqual(prefs.mode, 'openai')
+        self.assertEqual(prefs.primary_provider, 'openai')
+        self.assertEqual(prefs.secondary_provider, 'gemini')
+        self.assertFalse(prefs.automatic_fallback)
+
+    @override_settings(DEFAULT_LLM_PROVIDER='gemini')
+    def test_new_router_preferences_follow_server_default(self):
         prefs = settings_for(self.user)
 
         self.assertEqual(prefs.mode, 'gemini')
         self.assertEqual(prefs.primary_provider, 'gemini')
         self.assertEqual(prefs.secondary_provider, 'openai')
-        self.assertFalse(prefs.automatic_fallback)
 
     def test_local_selection_never_calls_external_provider_and_needs_no_consent(self):
         AIProviderSettings.objects.create(user=self.user, mode='local')
@@ -53,6 +61,7 @@ class ProviderRepairTests(TestCase):
         self.assertEqual(response.data['error_type'], 'quota_exhausted')
         openai.assert_not_awaited()
 
+    @override_settings(ENABLE_LLM_FALLBACK=True)
     def test_automatic_mode_falls_back_from_openai_to_configured_gemini(self):
         AIProviderSettings.objects.create(
             user=self.user,
@@ -91,6 +100,51 @@ class ProviderRepairTests(TestCase):
         }])
         openai.assert_awaited_once()
         gemini.assert_awaited_once()
+
+    @override_settings(ENABLE_LLM_FALLBACK=False)
+    def test_automatic_mode_does_not_fallback_when_globally_disabled(self):
+        AIProviderSettings.objects.create(
+            user=self.user,
+            mode='automatic',
+            primary_provider='openai',
+            secondary_provider='gemini',
+            automatic_fallback=True,
+        )
+        with patch.dict('os.environ', {
+            'OPENAI_API_KEY': 'test-openai-key',
+            'GEMINI_API_KEY': 'test-gemini-key',
+            'GOOGLE_API_KEY': '',
+        }), patch('services.provider_router.RepairEngine._repair_with_openai', new_callable=AsyncMock, return_value={
+            'error': 'OpenAI repair failed: provider_error',
+            'error_type': 'provider_error',
+            'repaired_code': SAMPLE,
+            'source': 'error',
+        }) as openai, patch('services.provider_router.RepairEngine._repair_with_gemini', new_callable=AsyncMock) as gemini:
+            response = self.client.post('/api/v1/repair/', {
+                'source_code': SAMPLE,
+                'error_message': "NameError: name 'final_price' is not defined",
+            }, format='json')
+
+        self.assertEqual(response.status_code, 502)
+        openai.assert_awaited_once()
+        gemini.assert_not_awaited()
+
+    def test_repair_failure_returns_safe_error_and_correlation_id(self):
+        AIProviderSettings.objects.create(user=self.user, mode='openai')
+        with patch('services.provider_router.RepairEngine._repair_with_openai', new_callable=AsyncMock, return_value={
+            'error': 'provider internal detail',
+            'error_type': 'authentication',
+            'source': 'error',
+        }):
+            response = self.client.post('/api/v1/repair/', {
+                'source_code': SAMPLE,
+                'error_message': 'NameError',
+            }, format='json')
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.data['request_id'], response['X-Request-ID'])
+        self.assertEqual(response.data['error_type'], 'authentication')
+        self.assertNotIn('provider internal detail', response.data['error'])
 
     def test_provider_preferences_are_authenticated_and_saved(self):
         response = self.client.patch('/api/v1/auth/ai-provider/', {'mode': 'automatic', 'primary_provider': 'gemini', 'secondary_provider': 'openai', 'automatic_fallback': True}, format='json')

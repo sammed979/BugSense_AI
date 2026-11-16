@@ -1,6 +1,6 @@
 """Authenticated repair proposal endpoint."""
 import asyncio
-import logging
+import uuid
 
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -9,16 +9,19 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.dashboard.models import DebuggingSession, RepairAttempt
-from services.code_analyzer import CodeAnalyzer
-from services.repair_engine import RepairEngine
+from services.repair_diagnostics import log_provider_exception, log_provider_failure
 
-logger = logging.getLogger(__name__)
+
+def _with_request_id(response, request_id):
+    response['X-Request-ID'] = request_id
+    return response
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_repair(request):
     """Generate an AI repair only after explicit consent; Quick Fix is opt-in."""
+    request_id = uuid.uuid4().hex
     data = request.data
     source_code = data.get('source_code', '')
     error_message = data.get('error_message', '')
@@ -30,11 +33,11 @@ def create_repair(request):
     allow_external_ai = data.get('allow_external_ai') is True
 
     if not isinstance(source_code, str) or not source_code.strip():
-        return Response({'error': 'source_code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return _with_request_id(Response({'error': 'source_code is required'}, status=status.HTTP_400_BAD_REQUEST), request_id)
     if len(source_code) > 200_000:
-        return Response({'error': 'source_code exceeds the 200 KB repair limit'}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        return _with_request_id(Response({'error': 'source_code exceeds the 200 KB repair limit'}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE), request_id)
     if language != 'python':
-        return Response({'error': 'Only Python repair is currently supported'}, status=status.HTTP_400_BAD_REQUEST)
+        return _with_request_id(Response({'error': 'Only Python repair is currently supported'}, status=status.HTTP_400_BAD_REQUEST), request_id)
     from services.provider_router import settings_for
     provider_settings = settings_for(request.user)
     selected_mode = provider_settings.mode
@@ -76,6 +79,7 @@ def create_repair(request):
                 language,
                 traceback=traceback_text,
                 provider_settings=provider_settings,
+                request_id=request_id,
             ))
 
         repair_result['session_id'] = session.id
@@ -83,8 +87,24 @@ def create_repair(request):
             session.status = 'REPAIR_FAILED'
             session.save(update_fields=['status', 'updated_at'])
             error_type = repair_result.get('error_type', 'provider_error')
+            provider = repair_result.get('provider') or (
+                provider_settings.primary_provider if selected_mode == 'automatic' else selected_mode
+            )
+            provider_label = provider if isinstance(provider, str) else selected_mode
+            provider_key = provider_label.lower()
+            display_provider = {'openai': 'OpenAI', 'gemini': 'Gemini'}.get(provider_key, provider_label.title())
+            log_provider_failure(request_id, provider_key, 'repair_generation', error_type)
             http_status = status.HTTP_422_UNPROCESSABLE_ENTITY if error_type == 'unsupported_or_ambiguous' else status.HTTP_429_TOO_MANY_REQUESTS if error_type in ('quota_exhausted', 'rate_limited') else status.HTTP_503_SERVICE_UNAVAILABLE if error_type in ('network', 'timeout', 'service_unavailable', 'missing_api_key') else status.HTTP_502_BAD_GATEWAY
-            return Response(repair_result, status=http_status)
+            response = Response({
+                'error': f'{display_provider} could not generate a repair ({error_type.replace("_", " ")}).',
+                'error_type': error_type,
+                'provider': display_provider,
+                'source': 'error',
+                'repaired_code': source_code,
+                'session_id': session.id,
+                'request_id': request_id,
+            }, status=http_status)
+            return _with_request_id(response, request_id)
 
         repaired_code = repair_result.get('repaired_code')
         if repaired_code and repaired_code != source_code:
@@ -96,24 +116,39 @@ def create_repair(request):
                 status='PENDING',
             )
             repair_result['attempt_id'] = repair_attempt.id
-        return Response(repair_result, status=status.HTTP_200_OK)
-    except asyncio.TimeoutError:
+        return _with_request_id(Response(repair_result, status=status.HTTP_200_OK), request_id)
+    except asyncio.TimeoutError as exc:
+        log_provider_exception(
+            request_id,
+            selected_mode,
+            'repair_request',
+            exc,
+            sensitive_values=(source_code, error_message, traceback_text),
+        )
         session.status = 'REPAIR_FAILED'
         session.save(update_fields=['status', 'updated_at'])
-        return Response({
+        return _with_request_id(Response({
             'error': 'The AI repair request timed out. Your original code was not changed.',
             'error_type': 'timeout',
             'repaired_code': source_code,
             'source': 'error',
             'session_id': session.id,
-        }, status=status.HTTP_504_GATEWAY_TIMEOUT)
-    except Exception:
-        logger.exception('Repair failed for user_id=%s session_id=%s', request.user.id, session.id)
+            'request_id': request_id,
+        }, status=status.HTTP_504_GATEWAY_TIMEOUT), request_id)
+    except Exception as exc:
+        log_provider_exception(
+            request_id,
+            selected_mode,
+            'repair_request',
+            exc,
+            sensitive_values=(source_code, error_message, traceback_text),
+        )
         session.status = 'REPAIR_FAILED'
         session.save(update_fields=['status', 'updated_at'])
-        return Response({
+        return _with_request_id(Response({
             'error': 'Repair generation failed unexpectedly. The original code was not changed.',
             'error_type': 'internal_error',
             'source': 'error',
             'session_id': session.id,
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            'request_id': request_id,
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR), request_id)

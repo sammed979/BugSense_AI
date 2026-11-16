@@ -23,7 +23,7 @@ ruff==0.1.14
 
 # AI Integration
 google-genai==2.34.0
-openai==1.12.0
+openai==1.55.3
 
 # Testing
 pytest==7.4.4

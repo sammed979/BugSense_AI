@@ -10,6 +10,14 @@ DEFAULT_AI_PROVIDER_SETTINGS = {
 }
 
 
+def default_ai_provider_settings():
+    provider = getattr(settings, 'DEFAULT_LLM_PROVIDER', 'openai')
+    secondary = 'gemini' if provider == 'openai' else 'openai'
+    defaults = dict(DEFAULT_AI_PROVIDER_SETTINGS)
+    defaults.update(mode=provider, primary_provider=provider, secondary_provider=secondary)
+    return defaults
+
+
 class AIProviderSettings(models.Model):
     """Non-secret per-user provider preference; credentials stay in backend env."""
     MODE_CHOICES = [('gemini', 'Google Gemini'), ('openai', 'OpenAI'), ('local', 'Local Repair Engine'), ('automatic', 'Automatic Fallback')]
@@ -24,5 +32,4 @@ class AIProviderSettings(models.Model):
         from django.core.exceptions import ValidationError
         if self.primary_provider == self.secondary_provider:
             raise ValidationError({'secondary_provider': 'Choose a different secondary provider.'})
-
 

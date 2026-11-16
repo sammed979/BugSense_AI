@@ -1,10 +1,11 @@
 """Per-user provider routing shared by analysis and repair."""
 import os
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from services.ai_service import AIService
 from services.repair_engine import RepairEngine
 from services.local_repair_engine import LocalRepairEngine
-from apps.accounts.models import AIProviderSettings, DEFAULT_AI_PROVIDER_SETTINGS
+from apps.accounts.models import AIProviderSettings, default_ai_provider_settings
 
 
 TRANSIENT = {'quota_exhausted', 'rate_limited', 'timeout', 'network', 'service_unavailable', 'provider_error'}
@@ -17,7 +18,7 @@ class AIProvider:
     async def analyze_code(self, error_message, traceback, source_code, language):
         raise NotImplementedError
 
-    async def generate_repair(self, source_code, error_message, diagnosis, language, traceback=''):
+    async def generate_repair(self, source_code, error_message, diagnosis, language, traceback='', request_id=''):
         raise NotImplementedError
 
     def explain_error(self, source_code, error_message):
@@ -34,8 +35,8 @@ class GeminiProvider(AIProvider):
     async def analyze_code(self, error_message, traceback, source_code, language):
         return await AIService._analyze_with_gemini(error_message, traceback, source_code, language)
 
-    async def generate_repair(self, source_code, error_message, diagnosis, language, traceback=''):
-        return await RepairEngine._repair_with_gemini(source_code, error_message, diagnosis, language, os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY') or '', os.getenv('GEMINI_MODEL', 'gemini-2.5-flash'), traceback)
+    async def generate_repair(self, source_code, error_message, diagnosis, language, traceback='', request_id=''):
+        return await RepairEngine._repair_with_gemini(source_code, error_message, diagnosis, language, os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY') or '', os.getenv('GEMINI_MODEL', 'gemini-2.5-flash'), traceback, request_id)
 
     def check_availability(self):
         return AIService.check_gemini_model_access()
@@ -47,8 +48,8 @@ class OpenAIProvider(AIProvider):
     async def analyze_code(self, error_message, traceback, source_code, language):
         return await AIService._analyze_with_openai(error_message, traceback, source_code, language)
 
-    async def generate_repair(self, source_code, error_message, diagnosis, language, traceback=''):
-        return await RepairEngine._repair_with_openai(source_code, error_message, diagnosis, language, os.getenv('OPENAI_API_KEY') or '', os.getenv('OPENAI_MODEL', 'gpt-4o'))
+    async def generate_repair(self, source_code, error_message, diagnosis, language, traceback='', request_id=''):
+        return await RepairEngine._repair_with_openai(source_code, error_message, diagnosis, language, os.getenv('OPENAI_API_KEY') or '', os.getenv('OPENAI_MODEL', 'gpt-4o'), request_id)
 
     def check_availability(self):
         from services.ai_service import OPENAI_AVAILABLE
@@ -76,12 +77,12 @@ PROVIDERS = {'gemini': GeminiProvider(), 'openai': OpenAIProvider(), 'local': Lo
 def settings_for(user):
     return AIProviderSettings.objects.get_or_create(
         user=user,
-        defaults=DEFAULT_AI_PROVIDER_SETTINGS,
+        defaults=default_ai_provider_settings(),
     )[0]
 
 
-def _mode(settings):
-    return settings.mode or os.getenv('DEFAULT_AI_PROVIDER', 'openai')
+def _mode(preferences):
+    return preferences.mode or settings.DEFAULT_LLM_PROVIDER
 
 
 async def analyze(user, error_message, traceback, source_code, language, provider_settings=None):
@@ -94,7 +95,7 @@ async def analyze(user, error_message, traceback, source_code, language, provide
     if mode == 'automatic' and not prefs.automatic_fallback:
         provider = prefs.primary_provider
     result = await _analyze_provider(provider, error_message, traceback, source_code, language)
-    if mode == 'automatic' and prefs.automatic_fallback and result.get('error') and result.get('error_type') in TRANSIENT:
+    if mode == 'automatic' and prefs.automatic_fallback and settings.ENABLE_LLM_FALLBACK and result.get('error') and result.get('error_type') in TRANSIENT:
         fallback = await _analyze_provider(prefs.secondary_provider, error_message, traceback, source_code, language)
         if not fallback.get('error'):
             fallback['fallback_from'] = {'provider': provider, 'error_type': result.get('error_type')}
@@ -125,7 +126,7 @@ async def _analyze_provider(provider, error_message, traceback, source_code, lan
     return result
 
 
-async def repair(user, source_code, error_message, diagnosis, language, traceback='', provider_settings=None):
+async def repair(user, source_code, error_message, diagnosis, language, traceback='', provider_settings=None, request_id=''):
     prefs = provider_settings or await sync_to_async(settings_for)(user)
     mode = _mode(prefs)
     if mode == 'local':
@@ -133,7 +134,8 @@ async def repair(user, source_code, error_message, diagnosis, language, tracebac
         result['provider'] = 'Local Repair Engine'
         return result
     providers = [mode] if mode in ('gemini', 'openai') else [prefs.primary_provider]
-    if mode == 'automatic' and prefs.automatic_fallback:
+    fallback_enabled = mode == 'automatic' and prefs.automatic_fallback and settings.ENABLE_LLM_FALLBACK
+    if fallback_enabled:
         providers.append(prefs.secondary_provider)
     failures = []
     for provider in providers:
@@ -141,15 +143,15 @@ async def repair(user, source_code, error_message, diagnosis, language, tracebac
         if not key:
             result = {'error': f'{provider.title()} API key is not configured on the backend.', 'error_type': 'missing_api_key', 'provider': provider, 'source': 'error'}
             failures.append({'provider': provider, 'error_type': 'missing_api_key'})
-            if mode != 'automatic' or not prefs.automatic_fallback:
+            if not fallback_enabled:
                 return result
             continue
         if provider == 'gemini':
-            result = await PROVIDERS['gemini'].generate_repair(source_code, error_message, diagnosis, language, traceback)
+            result = await PROVIDERS['gemini'].generate_repair(source_code, error_message, diagnosis, language, traceback, request_id)
             result.setdefault('provider', 'Gemini')
             result.setdefault('source', 'ai_gemini')
         else:
-            result = await PROVIDERS['openai'].generate_repair(source_code, error_message, diagnosis, language, traceback)
+            result = await PROVIDERS['openai'].generate_repair(source_code, error_message, diagnosis, language, traceback, request_id)
             result.setdefault('provider', 'OpenAI')
             result.setdefault('source', 'ai_openai')
         if not result.get('error') and result.get('repaired_code') and result['repaired_code'] != source_code:
@@ -160,7 +162,7 @@ async def repair(user, source_code, error_message, diagnosis, language, tracebac
         result['error_type'] = error_type
         failures.append({'provider': provider, 'error_type': error_type})
         # Explicit selections are single-provider. Automatic only falls through for transient failures.
-        if mode != 'automatic' or not prefs.automatic_fallback or error_type not in TRANSIENT:
+        if not fallback_enabled or error_type not in TRANSIENT:
             return result
     local = LocalRepairEngine.generate_repair(source_code, error_message)
     if local.get('success'):

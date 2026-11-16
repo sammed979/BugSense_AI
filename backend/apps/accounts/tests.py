@@ -117,6 +117,27 @@ class RegistrationFlowTests(APITestCase):
                                        HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type')
         self.assertEqual(response['Access-Control-Allow-Origin'], 'http://127.0.0.1:5173')
 
+    @override_settings(CORS_ALLOW_ALL_ORIGINS=False)
+    def test_vercel_preview_origin_passes_cors_preflight(self):
+        origin = 'https://bugsenseai-frontend-gb5kdb5ge-sam-f03a.vercel.app'
+        response = self.client.options(
+            REGISTER_URL,
+            HTTP_ORIGIN=origin,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type',
+        )
+        self.assertEqual(response['Access-Control-Allow-Origin'], origin)
+
+    @override_settings(CORS_ALLOW_ALL_ORIGINS=False)
+    def test_unrelated_vercel_preview_origin_is_not_allowed(self):
+        response = self.client.options(
+            REGISTER_URL,
+            HTTP_ORIGIN='https://unrelated-preview.vercel.app',
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type',
+        )
+        self.assertNotIn('Access-Control-Allow-Origin', response)
+
 
 class ProviderPreferencesTests(APITestCase):
     def test_preferences_persist_without_exposing_credentials(self):
@@ -125,7 +146,7 @@ class ProviderPreferencesTests(APITestCase):
         endpoint = '/api/v1/auth/ai-provider/'
         loaded = self.client.get(endpoint)
         self.assertEqual(loaded.status_code, 200)
-        self.assertEqual(loaded.data['mode'], 'gemini')
+        self.assertEqual(loaded.data['mode'], 'openai')
         self.assertIn('provider_status', loaded.data)
         self.assertNotIn('api_key', loaded.data)
         saved = self.client.patch(endpoint, {'mode': 'local', 'primary_provider': 'gemini', 'secondary_provider': 'openai'}, format='json')
