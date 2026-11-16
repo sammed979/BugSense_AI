@@ -254,20 +254,21 @@ Do not omit unchanged portions of the source file. Do not include markdown fence
                 },
                 'required': ['repaired_code', 'explanation'],
             }
+            # Use synchronous client to avoid async cleanup issues
             client = genai.Client(api_key=api_key, http_options=http_options)
-            async with client.aio as async_client:
-                response = await asyncio.wait_for(
-                    async_client.models.generate_content(
-                        model=model,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=0.2,
-                            response_mime_type='application/json',
-                            response_schema=schema,
-                        ),
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.2,
+                        response_mime_type='application/json',
+                        response_schema=schema,
                     ),
-                    timeout=timeout_seconds,
-                )
+                ),
+                timeout=timeout_seconds,
+            )
 
             print(f"Gemini: Response received, has text: {bool(response.text)}")
 

@@ -62,9 +62,9 @@ class AIService:
             return {'status': 'sdk_unavailable', 'ready': False}
 
         api_key = os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
-        client = None
         try:
             from google.genai import types
+            # Use synchronous client for simple model check to avoid async cleanup issues
             client = genai.Client(
                 api_key=api_key,
                 http_options=types.HttpOptions(
@@ -82,10 +82,6 @@ class AIService:
                 'status': AIService._classify_provider_error(str(error).replace(api_key or '', '[REDACTED]')),
                 'ready': False,
             }
-        finally:
-            close = getattr(client, 'close', None)
-            if callable(close):
-                close()
 
     @staticmethod
     def is_configured() -> bool:
@@ -326,19 +322,20 @@ Provide a JSON response with:
                 timeout=timeout_seconds * 1000,
                 retry_options=types.HttpRetryOptions(attempts=1),
             )
+            # Use synchronous client to avoid async cleanup issues
             client = genai.Client(api_key=api_key, http_options=http_options)
-            async with client.aio as async_client:
-                response = await asyncio.wait_for(
-                    async_client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=0.2,
-                            response_mime_type='application/json',
-                        ),
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.2,
+                        response_mime_type='application/json',
                     ),
-                    timeout=timeout_seconds,
-                )
+                ),
+                timeout=timeout_seconds,
+            )
 
             content = (response.text or '').strip()
             if not content:
