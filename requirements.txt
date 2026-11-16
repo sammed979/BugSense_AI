@@ -5,7 +5,7 @@ django-cors-headers==4.3.1
 
 # Database
 # PostgreSQL (recommended for production)
-psycopg2-binary==2.9.9
+psycopg[binary]==3.2.3
 dj-database-url==2.1.0
 
 # MongoDB (optional - requires additional setup)
