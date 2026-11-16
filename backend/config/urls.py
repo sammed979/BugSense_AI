@@ -11,7 +11,7 @@ from django.http import JsonResponse
 def api_info(request):
     """API info endpoint at root."""
     from django.http import HttpResponse
-    # Handle HEAD requests - return 200 without body for health checks
+    # Handle HEAD requests - return 200 without body
     if request.method == 'HEAD':
         return HttpResponse(status=200)
     # Handle GET requests
@@ -40,12 +40,10 @@ def api_info(request):
 
 def health_check(request):
     """Health check endpoint for Render."""
-    from django.http import HttpResponse, JsonResponse
-    # HEAD requests should not return a body
-    if request.method == 'HEAD':
-        return HttpResponse(status=200)
-    # GET requests return JSON status
-    return JsonResponse({'status': 'ok', 'service': 'BugSense AI Backend'}, status=200)
+    from django.http import HttpResponse
+    # Both HEAD and GET return simple 200 without body for health checks
+    # This avoids "WSGI app sent body bytes on a no-body response" errors
+    return HttpResponse(status=200)
 
 
 urlpatterns = [
