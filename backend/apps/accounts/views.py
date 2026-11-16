@@ -7,14 +7,24 @@ from .serializers import UserRegistrationSerializer, UserSerializer, AIProviderS
 from .models import AIProviderSettings
 from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 
 User = get_user_model()
 
 
+@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name='dispatch')
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = (AllowAny,)
     serializer_class = UserRegistrationSerializer
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """Custom token view that exempts CSRF for JWT authentication."""
+    pass
 
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
