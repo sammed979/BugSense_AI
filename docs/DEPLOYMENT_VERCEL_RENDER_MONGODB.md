@@ -64,12 +64,12 @@ This guide explains how to deploy BugSense AI to production using:
 5. Configure the web service:
    - **Name**: `bugsense-ai-backend`
    - **Branch**: `master`
-   - **Root Directory**: (leave empty - render.yaml handles this)
+   - **Root Directory**: `backend`
    - **Runtime**: Python 3
-6. The `render.yaml` file will automatically configure:
-   - Build command: `pip install -r requirements.txt`
-   - Start command: `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120`
-   - Automatic PostgreSQL connection via `fromDatabase` variables
+6. Set the service commands:
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120`
+   - Add the Render PostgreSQL `DATABASE_URL` environment variable.
 7. Add additional environment variables (click "Advanced" → "Add Environment Variable"):
    ```
    DJANGO_SECRET_KEY=<generate-a-random-key>
@@ -139,25 +139,11 @@ Option 2: Update in code
 
 ## Step 3: Run Migrations
 
-Since we're using PostgreSQL, migrations work the same as local development:
-
-1. Go to Render dashboard
-2. Click your backend service
-3. Click "Shell" (top right)
-4. Run:
-   ```bash
-   python manage.py migrate
-   ```
-5. Exit the shell
-6. This will create all database tables in PostgreSQL
-
-Alternatively, you can add migrations to the build command:
-1. Go to your service → "Settings"
-2. Change Build Command to:
-   ```
-   pip install -r requirements.txt && python manage.py migrate
-   ```
-3. Trigger a new deployment
+Migrations must run against the production database before Gunicorn starts. Set the
+Render service **Start Command** to the command above, then deploy. For an existing
+service, update **Settings → Build & Deploy → Start Command** and trigger a deploy.
+Do not run database migrations in the build command because the build environment
+should not perform production database changes.
 
 ## Environment Variables Reference
 
