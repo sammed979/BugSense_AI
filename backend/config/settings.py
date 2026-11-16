@@ -195,7 +195,11 @@ if production_frontend_url and production_frontend_url not in cors_origins:
     cors_origins += f',{production_frontend_url}'
 CORS_ALLOWED_ORIGINS = cors_origins.split(',')
 CORS_ALLOW_CREDENTIALS = False  # JWT auth doesn't need credentials
-CORS_ALLOW_ALL_ORIGINS = False  # Always False for security
+# In DEBUG mode, allow all origins to support Vercel preview deployments
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False  # Always False for production security
 CORS_ALLOW_HEADERS = [
     'content-type',
     'authorization',
