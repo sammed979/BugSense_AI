@@ -105,8 +105,6 @@ if database_url:
         conn_max_age=600,
         conn_health_checks=True,
     )
-    if IS_RENDER and database_config['ENGINE'] != 'django.db.backends.postgresql':
-        raise ImproperlyConfigured('Render deployments require DATABASE_URL to use PostgreSQL.')
     DATABASES = {'default': database_config}
 elif IS_RENDER or not DEBUG:
     raise ImproperlyConfigured('DATABASE_URL is required outside local DEBUG mode.')

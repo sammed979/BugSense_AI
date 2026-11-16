@@ -1,1 +1,1 @@
-web: cd backend && export PYTHONPATH="${PYTHONPATH}:$(pwd)" && python manage.py migrate_locked --noinput && python manage.py database_diagnostics && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120
+web: cd backend && export PYTHONPATH="${PYTHONPATH}:$(pwd)" && export RENDER=true && python manage.py migrate --run-syncdb --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120
