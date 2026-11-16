@@ -132,7 +132,9 @@ class RepairEngine:
     ) -> Dict[str, Any]:
         """Generate repair using OpenAI."""
         try:
-            client = AsyncOpenAI(api_key=api_key, max_retries=0, timeout=35.0)
+            # Use synchronous client wrapped in asyncio.to_thread to avoid httpx cleanup issues
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, max_retries=0, timeout=35.0)
 
             prompt = f"""Fix this programming error.
 
@@ -149,13 +151,17 @@ Source Code:
 
 Provide ONLY the fixed code, no explanations. Output just the corrected source code."""
 
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "You are a code debugging expert. Always respond with valid code only."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.chat.completions.create,
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "You are a code debugging expert. Always respond with valid code only."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.3,
+                ),
+                timeout=35.0,
             )
 
             repaired_code = response.choices[0].message.content.strip()

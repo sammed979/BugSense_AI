@@ -4,7 +4,7 @@ from asgiref.sync import sync_to_async
 from services.ai_service import AIService
 from services.repair_engine import RepairEngine
 from services.local_repair_engine import LocalRepairEngine
-from apps.accounts.models import AIProviderSettings
+from apps.accounts.models import AIProviderSettings, DEFAULT_AI_PROVIDER_SETTINGS
 
 
 TRANSIENT = {'quota_exhausted', 'rate_limited', 'timeout', 'network', 'service_unavailable', 'provider_error'}
@@ -74,11 +74,14 @@ PROVIDERS = {'gemini': GeminiProvider(), 'openai': OpenAIProvider(), 'local': Lo
 
 
 def settings_for(user):
-    return AIProviderSettings.objects.get_or_create(user=user)[0]
+    return AIProviderSettings.objects.get_or_create(
+        user=user,
+        defaults=DEFAULT_AI_PROVIDER_SETTINGS,
+    )[0]
 
 
 def _mode(settings):
-    return settings.mode or os.getenv('DEFAULT_AI_PROVIDER', 'gemini')
+    return settings.mode or os.getenv('DEFAULT_AI_PROVIDER', 'openai')
 
 
 async def analyze(user, error_message, traceback, source_code, language, provider_settings=None):
@@ -150,6 +153,8 @@ async def repair(user, source_code, error_message, diagnosis, language, tracebac
             result.setdefault('provider', 'OpenAI')
             result.setdefault('source', 'ai_openai')
         if not result.get('error') and result.get('repaired_code') and result['repaired_code'] != source_code:
+            if failures:
+                result['fallback_from'] = failures
             return result
         error_type = result.get('error_type') or AIService._classify_provider_error(result.get('error', 'provider error'))
         result['error_type'] = error_type
