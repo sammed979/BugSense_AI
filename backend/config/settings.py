@@ -12,6 +12,9 @@ from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load the backend-local environment regardless of the process working directory.
+# The repo-root .env.local is written by `neon deploy` and takes precedence for the
+# Neon service variables it defines (loaded first, so it wins over backend/.env).
+load_dotenv(BASE_DIR.parent / '.env.local')
 load_dotenv(BASE_DIR / '.env')
 
 # Add services and sandbox to Python path
@@ -97,6 +100,11 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database: Render must use its PostgreSQL DATABASE_URL; SQLite is local-only.
 database_url = os.environ.get('DATABASE_URL', '').strip()
 
+# PgBouncer (Neon's pooled endpoint) cannot CREATE/DROP databases, which the test
+# runner requires, so tests use the direct (unpooled) endpoint when it is available.
+if 'test' in sys.argv and os.environ.get('DATABASE_URL_UNPOOLED'):
+    database_url = os.environ['DATABASE_URL_UNPOOLED'].strip()
+
 if database_url:
     import dj_database_url
 
@@ -105,6 +113,10 @@ if database_url:
         conn_max_age=600,
         conn_health_checks=True,
     )
+    # Neon's pooled endpoint runs PgBouncer in transaction mode, which does not
+    # support server-side cursors, so the PostgreSQL backend must disable them.
+    database_config['DISABLE_SERVER_SIDE_CURSORS'] = True
+    database_config.setdefault('OPTIONS', {}).setdefault('sslmode', 'require')
     DATABASES = {'default': database_config}
 elif IS_RENDER or not DEBUG:
     raise ImproperlyConfigured('DATABASE_URL is required outside local DEBUG mode.')
