@@ -134,6 +134,89 @@ class LogSenseTests(TestCase):
         self.assertEqual(result['line_explanations'][-1]['role'], 'root_cause')
         self.assertEqual(len({line['explanation'] for line in result['line_explanations']}), len(result['line_explanations']))
 
+    def test_python_tracebacks_identify_common_exceptions_and_suggest_specific_fixes(self):
+        cases = [
+            (
+                'KeyError',
+                'Traceback (most recent call last):\n  File "lookup.py", line 12, in find_user\n    return users["sam"]\nKeyError: \'sam\'',
+                'Python KeyError', 'sam', 'mapping',
+            ),
+            (
+                'TypeError',
+                'Traceback (most recent call last):\n  File "maths.py", line 8, in add_values\n    return 1 + "2"\nTypeError: unsupported operand type(s) for +: \'int\' and \'str\'',
+                'Python TypeError', 'int and str', 'operands',
+            ),
+            (
+                'NameError',
+                'Traceback (most recent call last):\n  File "main.py", line 4, in calculate\n    return total_prize\nNameError: name \'total_prize\' is not defined',
+                'Python NameError', 'total_prize', 'scope',
+            ),
+            (
+                'IndexError',
+                'Traceback (most recent call last):\n  File "items.py", line 19, in first_item\n    return items[0]\nIndexError: list index out of range',
+                'Python IndexError', 'list index out of range', 'sequence',
+            ),
+            (
+                'ZeroDivisionError',
+                'Traceback (most recent call last):\n  File "rates.py", line 21, in ratio\n    return total / count\nZeroDivisionError: division by zero',
+                'Python ZeroDivisionError', 'division by zero', 'denominator',
+            ),
+        ]
+        for exception_name, log, error_type, summary_text, fix_text in cases:
+            with self.subTest(exception=exception_name):
+                result = explain_local(log)
+                self.assertEqual(result['log_type'], 'Python traceback')
+                self.assertEqual(result['error_type'], error_type)
+                self.assertEqual(result['exception_type'], exception_name)
+                self.assertEqual(result['severity'], 'ERROR')
+                self.assertNotIn('cannot be identified confidently', result['quick_summary'].lower())
+                self.assertIn(summary_text.lower(), result['quick_summary'].lower())
+                self.assertIn(fix_text.lower(), ' '.join(result['fix_steps']).lower())
+                self.assertEqual(result['where'][0]['file_path'], log.split('"')[1])
+                self.assertEqual(result['where'][0]['function'], log.split(', in ')[1].splitlines()[0])
+                self.assertEqual(result['where'][0]['line_number'], int(log.split(', line ')[1].split(',')[0]))
+                self.assertTrue(result['root_cause']['confirmed'])
+                self.assertTrue(result['root_cause']['possible'])
+                self.assertEqual(len(result['errors']), 1)
+
+    def test_multiple_python_tracebacks_keep_each_exception_and_location(self):
+        log = (
+            'Traceback (most recent call last):\n'
+            '  File "users.py", line 7, in get_user\n'
+            '    return users["sam"]\n'
+            "KeyError: 'sam'\n"
+            '\nDuring handling of the above exception, another exception occurred:\n'
+            'Traceback (most recent call last):\n'
+            '  File "billing.py", line 14, in charge\n'
+            '    return total / count\n'
+            'ZeroDivisionError: division by zero'
+        )
+        result = explain_local(log)
+
+        self.assertEqual(result['log_type'], 'Multiple Python tracebacks')
+        self.assertEqual(result['error_type'], 'Multiple Python exceptions')
+        self.assertEqual(result['exception_types'], ['KeyError', 'ZeroDivisionError'])
+        self.assertEqual(len(result['errors']), 2)
+        self.assertIn('KeyError', result['quick_summary'])
+        self.assertIn('ZeroDivisionError', result['quick_summary'])
+        self.assertEqual(
+            [(item['location']['file_path'], item['location']['function'], item['location']['line_number'])
+             for item in result['errors']],
+            [('users.py', 'get_user', 7), ('billing.py', 'charge', 14)],
+        )
+        root_lines = [row['number'] for row in result['line_explanations'] if row['role'] == 'root_cause']
+        self.assertEqual(root_lines, [4, 10])
+        self.assertTrue(all(item['fix_steps'] for item in result['errors']))
+
+    def test_incomplete_python_traceback_is_not_classified_as_unknown_log_type(self):
+        result = explain_local('Traceback (most recent call last):\n  File "main.py", line 3, in run')
+
+        self.assertEqual(result['log_type'], 'Python traceback')
+        self.assertEqual(result['error_type'], 'Incomplete Python traceback')
+        self.assertEqual(result['status'], 'partial')
+        self.assertIn('final exception line is missing', result['quick_summary'])
+        self.assertTrue(result['fix_steps'])
+
     def test_informational_logs_report_the_actual_message_and_unknowns_do_not_guess_a_fix(self):
         info = explain_local('INFO scheduler started on port 8123')
         self.assertIn('scheduler started on port 8123', info['quick_summary'])

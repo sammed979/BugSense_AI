@@ -99,7 +99,7 @@ def _format_rule(rule, raw, identifier):
     return value
 
 
-def explain_local(log_text, level='beginner', language='en'):
+def _explain_non_traceback(log_text, level='beginner', language='en'):
     """Return a structured, evidence-anchored interpretation without claiming external AI."""
     lines = log_text.splitlines()
     if log_text.endswith(('\n', '\r')):
@@ -227,8 +227,10 @@ def explain_local(log_text, level='beginner', language='en'):
     terms = []
     glossary = {
         'NameError': 'Python could not find a variable or name in the active scope.',
+        'KeyError': 'A mapping lookup requested a key that was not available at that moment.',
         'TypeError': 'An operation received a value whose type does not support that operation.',
         'IndexError': 'A sequence position was outside the available indexes.',
+        'ZeroDivisionError': 'A division operation reached a zero divisor.',
         'ModuleNotFoundError': 'Python could not import a module in the active environment.',
         'NullPointerException': 'Java code tried to use a null object reference.',
         'ReferenceError': 'JavaScript could not resolve a referenced name.',
@@ -270,3 +272,319 @@ def explain_local(log_text, level='beginner', language='en'):
                        'If the cause remains uncertain, include the preceding and following log events.'],
         'explanation_level': level, 'language': language,
     }
+
+
+_TRACEBACK_START = re.compile(r'Traceback \(most recent call (?:last|first)\):', re.I)
+_TRACEBACK_EXCEPTION = re.compile(
+    r'^(?P<exception_type>(?:[A-Za-z_]\w*\.)*[A-Z][A-Za-z0-9_]*)'
+    r'(?::\s*(?P<message>.*))?$'
+)
+
+
+def _parse_python_tracebacks(log_text):
+    lines = log_text.splitlines()
+    starts = [index for index, line in enumerate(lines) if _TRACEBACK_START.search(line)]
+    tracebacks = []
+    for position, start in enumerate(starts):
+        stop = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        exception_index = None
+        exception_type = None
+        message = ''
+        for index in range(start + 1, stop):
+            raw_line = lines[index]
+            if raw_line[:1].isspace():
+                continue
+            candidate = raw_line.strip()
+            if re.match(r'^(?:TRACE|DEBUG|INFO|NOTICE|WARN(?:ING)?)\s*:', candidate):
+                continue
+            prefix = re.match(r'^(?:ERROR|CRITICAL|FATAL)\s*[:\]-]\s*(.+)$', candidate, re.I)
+            if prefix:
+                candidate = prefix.group(1)
+            match = _TRACEBACK_EXCEPTION.match(candidate)
+            if match:
+                exception_index = index
+                exception_type = match.group('exception_type').rsplit('.', 1)[-1]
+                message = (match.group('message') or '').strip()
+                break
+
+        frame_locations = []
+        frame_indexes = []
+        frame_stop = exception_index if exception_index is not None else stop
+        for index in range(start + 1, frame_stop):
+            location = _location(lines[index])
+            if location['file_path'] or location['line_number']:
+                frame_indexes.append(index)
+                frame_locations.append(location)
+
+        tracebacks.append({
+            'start_index': start,
+            'stop_index': stop,
+            'exception_index': exception_index,
+            'exception_type': exception_type,
+            'message': message,
+            'frame_indexes': frame_indexes,
+            'frames': frame_locations,
+            'location': frame_locations[-1] if frame_locations else {
+                'file_path': None, 'line_number': None, 'function': None,
+            },
+        })
+    return lines, tracebacks
+
+
+def _python_exception_diagnosis(traceback):
+    exception_type = traceback['exception_type']
+    message = traceback['message']
+    location = traceback['location']
+    line_number = traceback['exception_index'] + 1 if traceback['exception_index'] is not None else None
+    location_text = ''
+    if location['file_path']:
+        location_text = location['file_path']
+        if location['line_number'] is not None:
+            location_text += f":{location['line_number']}"
+        if location['function']:
+            location_text += f" in {location['function']}"
+    elif location['line_number'] is not None:
+        location_text = f"line {location['line_number']}"
+
+    if not exception_type:
+        summary = 'A Python traceback was detected, but its final exception line is missing.'
+        confirmed = 'The supplied text contains a Python traceback header, but no final exception type or message.'
+        likely = 'The log may be truncated before Python printed the exception. The failure itself cannot be identified without that final line.'
+        steps = ['Include the traceback through its final exception line.', 'Use the last `File ..., line ...` frame to inspect the operation that failed.']
+        label = 'Incomplete Python traceback'
+        explanation = confirmed
+        identifier = None
+        confidence = 0.35
+    else:
+        label = f'Python {exception_type}'
+        suffix = f' at {location_text}' if location_text else ''
+        actual_message = message or 'no exception message was included'
+        identifier = None
+        confidence = 0.82
+
+        if exception_type == 'KeyError':
+            identifier = message
+            summary = f'Python could not find the requested key {message or "(key not shown)"} in a mapping{suffix}.'
+            confirmed = f'The traceback ends with KeyError{f": {message}" if message else ""}; the requested lookup failed.'
+            likely = f'The mapping did not contain {message or "the requested key"} at lookup time. The traceback does not establish whether the key was misspelled, omitted from input, or removed earlier.'
+            steps = [
+                f'Inspect the mapping and requested key at {location_text}.' if location_text else 'Inspect the mapping and requested key at the final traceback frame.',
+                'Check the key spelling and confirm the input data contains that key.',
+                'If a missing key is valid, handle that case explicitly with a fallback or `.get()`; otherwise validate the required key before lookup.',
+            ]
+            explanation = f'KeyError means Python tried to read key {message or "(not shown)"} from a mapping and that lookup failed.'
+            confidence = 0.9
+        elif exception_type == 'NameError':
+            name_match = re.search(r"name\s+(['\"])(.+?)\1\s+is not defined", message)
+            identifier = name_match.group(2) if name_match else None
+            summary = f'Python could not resolve {identifier!r} when this code ran{suffix}.' if identifier else f'Python raised NameError: {actual_message}{suffix}.'
+            confirmed = f'The traceback confirms that {identifier!r} was not defined in the active scope.' if identifier else f'The traceback ends with NameError: {actual_message}.'
+            likely = 'The name may be misspelled, not assigned yet, or outside the current scope; the traceback does not distinguish which.'
+            steps = [
+                f'Check the spelling and capitalization of {identifier!r}.' if identifier else f'Read the NameError message: {message or "no message was provided"}.',
+                'Define or import the name before this line, or pass it into the function if it belongs to another scope.',
+            ]
+            explanation = f'Python could not find {identifier!r} in the active scope.' if identifier else f'Python could not resolve this name: {actual_message}.'
+            confidence = 0.9
+        elif exception_type == 'TypeError':
+            unsupported = re.search(
+                r'unsupported operand type\(s\) for\s+(.+?):\s*[\'"]([^\'"]+)[\'"]\s+and\s+[\'"]([^\'"]+)[\'"]',
+                message,
+            )
+            missing_argument = re.search(r"missing \d+ required positional argument[s]?:\s*['\"]([^'\"]+)", message)
+            if unsupported:
+                operator, left_type, right_type = unsupported.groups()
+                summary = f'Python cannot apply {operator} to values of type {left_type} and {right_type}{suffix}.'
+                explanation = f'The TypeError names incompatible operands for {operator}: {left_type} and {right_type}.'
+                likely = f'The operation received a {left_type} and a {right_type}; at least one value may not have the type this operation expects.'
+                steps = [
+                    f'Inspect both operands at {location_text}.' if location_text else 'Inspect both operands at the final traceback frame.',
+                    'Confirm the intended operation; convert a value only if that conversion matches the data model.',
+                    'Add input validation for the operand types and test this mixed-type case.',
+                ]
+            elif missing_argument:
+                identifier = missing_argument.group(1)
+                summary = f'Python called a function without its required `{identifier}` argument{suffix}.'
+                explanation = f'The call is missing required argument `{identifier}`.'
+                likely = f'The function call did not supply required argument `{identifier}`; the traceback does not show whether the caller or function signature is unexpected.'
+                steps = [
+                    f'Inspect the call at {location_text} and pass `{identifier}`.' if location_text else f'Inspect the final traceback frame and pass `{identifier}`.',
+                    'Compare the call with the function definition and any recent signature changes.',
+                ]
+            else:
+                summary = f'Python could not complete the operation described by this TypeError{suffix}: {actual_message}.'
+                explanation = f'TypeError: {actual_message}. This message identifies the rejected operation or arguments.'
+                likely = f'The values or arguments do not satisfy the operation described by `{message or exception_type}`; inspect them at the failing frame.'
+                steps = [
+                    f'Inspect the values and arguments at {location_text}.' if location_text else 'Inspect the values and arguments at the final traceback frame.',
+                    f'Compare them with the operation or function requirements stated in: {message or "the TypeError"}.',
+                    'Validate inputs or correct the call; convert types only when that matches the intended behavior.',
+                ]
+            confirmed = f'The traceback confirms a TypeError with this message: {message or "(message not shown)"}'
+        elif exception_type == 'IndexError':
+            summary = f'Python tried to access an index that is outside the available sequence{suffix}: {actual_message}.'
+            confirmed = f'The traceback confirms an invalid sequence access: {actual_message}.'
+            likely = 'The requested index is outside the sequence bounds at that moment; the log does not establish why the sequence was empty or shorter than expected.'
+            steps = [
+                f'Inspect the sequence length and index at {location_text}.' if location_text else 'Inspect the sequence length and index at the final traceback frame.',
+                'Check loop bounds and whether the sequence can be empty or shorter than expected.',
+                'Guard the access or iterate over the sequence directly, according to the intended behavior.',
+            ]
+            explanation = f'IndexError means the requested sequence position is unavailable: {actual_message}.'
+            confidence = 0.9
+        elif exception_type == 'ZeroDivisionError':
+            summary = f'Python attempted division with a zero divisor{suffix}: {actual_message}.'
+            confirmed = 'The traceback confirms the divisor evaluated to zero at runtime.'
+            likely = 'The denominator was zero when the operation ran; the log does not establish whether that value came from input or an earlier calculation.'
+            steps = [
+                f'Inspect the denominator at {location_text}.' if location_text else 'Inspect the denominator at the final traceback frame.',
+                'Decide how a zero denominator should be handled for this calculation.',
+                'Add a zero check or use a domain-appropriate alternative before dividing.',
+            ]
+            explanation = 'ZeroDivisionError means the calculation reached a zero divisor.'
+            confidence = 0.9
+        else:
+            summary = f'Python raised {exception_type}: {actual_message}{suffix}.'
+            confirmed = f'The traceback confirms {exception_type}: {actual_message}.'
+            likely = f'The failing operation is at {location_text}; inspect the operation and values shown by the final frame to determine the upstream cause.' if location_text else 'The traceback identifies the exception, but does not include enough location detail to establish its upstream cause.'
+            steps = [
+                f'Inspect the failing operation at {location_text}.' if location_text else 'Inspect the final application frame in the traceback.',
+                f'Use the exception message `{message or exception_type}` to check the operation and its inputs.',
+                'Make the smallest correction that matches the intended behavior, then reproduce the same input.',
+            ]
+            explanation = f'Python raised {exception_type}: {actual_message}.'
+
+    if line_number is not None:
+        evidence_lines = [line_number]
+    elif traceback['start_index'] is not None:
+        evidence_lines = [traceback['start_index'] + 1]
+    else:
+        evidence_lines = []
+    return {
+        'log_type': 'Python traceback',
+        'error_type': label,
+        'exception_type': exception_type,
+        'message': message,
+        'severity': 'ERROR' if exception_type else 'UNKNOWN',
+        'summary': summary,
+        'explanation': explanation,
+        'location': location,
+        'root_cause': {'confirmed': confirmed, 'likely': likely, 'possible': [likely], 'confidence': confidence},
+        'fix_steps': steps,
+        'identifier': identifier,
+        'evidence_lines': evidence_lines,
+        'traceback_start_line': traceback['start_index'] + 1,
+        'traceback_end_line': traceback['stop_index'],
+    }
+
+
+def explain_local(log_text, level='beginner', language='en'):
+    """Explain a technical log, parsing every Python traceback before generic rules."""
+    lines, tracebacks = _parse_python_tracebacks(log_text)
+    if not tracebacks:
+        result = _explain_non_traceback(log_text, level, language)
+        result['log_type'] = result['technologies'][0] if result['technologies'] else 'Technical log'
+        return result
+
+    diagnoses = [_python_exception_diagnosis(traceback) for traceback in tracebacks]
+    if language == 'kn':
+        for item in diagnoses:
+            if item['exception_type']:
+                item['summary'] = f"{item['error_type']} ದೋಷ: {item['message'] or 'ಸಂದೇಶ ಲಭ್ಯವಿಲ್ಲ'}. {item['root_cause']['confirmed']}"
+            else:
+                item['summary'] = 'Python traceback ಪತ್ತೆಯಾಗಿದೆ, ಆದರೆ ಅಂತಿಮ exception ಸಾಲು ಕಾಣೆಯಾಗಿದೆ.'
+    base = _explain_non_traceback(log_text, level, language)
+    records = base['line_explanations']
+    for traceback, diagnosis in zip(tracebacks, diagnoses):
+        start = traceback['start_index']
+        stop = traceback['stop_index']
+        frame_indexes = set(traceback['frame_indexes'])
+        exception_index = traceback['exception_index']
+        for index in range(start, stop):
+            row = records[index]
+            if index == start:
+                row.update(
+                    role='trace_start',
+                    severity='context',
+                    explanation='This line starts a Python traceback. The final exception line identifies the error; the frames show the call path.',
+                )
+            elif index in frame_indexes:
+                location = _location(lines[index])
+                row.update(
+                    role='stack_frame',
+                    severity='context',
+                    explanation=(
+                        f"Call frame in {location['file_path']}"
+                        + (f" at line {location['line_number']}" if location['line_number'] else '')
+                        + (f" inside {location['function']}" if location['function'] else '')
+                        + '. The deepest frame is the immediate failure location; earlier frames show its callers.'
+                    ),
+                )
+            elif index == exception_index:
+                row.update(role='root_cause', severity='error', explanation=diagnosis['explanation'])
+            else:
+                row.update(
+                    role='supporting',
+                    severity='context',
+                    explanation='This line is part of the traceback context; use it with the exception and stack frames above.',
+                )
+
+    summaries = [
+        f"{item['exception_type'] or item['error_type']}: {item['summary']}"
+        for item in diagnoses
+    ]
+    quick_summary = summaries[0] if len(summaries) == 1 else (
+        f"Detected {len(diagnoses)} Python tracebacks: " + ' '.join(summaries)
+    )
+    complete = all(item['exception_type'] for item in diagnoses)
+    has_errors = any(item['exception_type'] for item in diagnoses)
+    all_steps = list(dict.fromkeys(step for item in diagnoses for step in item['fix_steps']))
+    possible = [
+        {'cause': item['root_cause']['likely'], 'evidence_lines': item['evidence_lines']}
+        for item in diagnoses
+    ]
+    confirmed = ' '.join(item['root_cause']['confirmed'] for item in diagnoses)
+    evidence_lines = list(dict.fromkeys(line for item in diagnoses for line in item['evidence_lines']))
+    all_locations = [
+        {
+            'line': row['number'],
+            'file_path': row['file_path'],
+            'line_number': row['line_number'],
+            'function': row['function'],
+        }
+        for row in records if row['file_path'] or row['line_number']
+    ]
+    error_types = [item['error_type'] for item in diagnoses]
+    exception_types = [item['exception_type'] for item in diagnoses if item['exception_type']]
+    confidence = min(item['root_cause']['confidence'] for item in diagnoses)
+    base.update({
+        'status': 'complete' if complete else 'partial',
+        'log_type': 'Python traceback' if len(diagnoses) == 1 else 'Multiple Python tracebacks',
+        'quick_summary': quick_summary,
+        'what_happened': quick_summary,
+        'why': confirmed,
+        'classification': (['ERROR'] if has_errors else []) + ([] if complete else ['INCOMPLETE']),
+        'error_type': error_types[0] if len(diagnoses) == 1 else 'Multiple Python exceptions',
+        'exception_type': exception_types[0] if len(exception_types) == 1 else None,
+        'exception_types': exception_types,
+        'severity': 'ERROR' if has_errors else 'UNKNOWN',
+        'technologies': ['Python / Django'],
+        'identifier': diagnoses[0]['identifier'] if len(diagnoses) == 1 else None,
+        'line_explanations': records,
+        'where': all_locations,
+        'root_cause': {
+            'confirmed': confirmed,
+            'likely': ' '.join(item['root_cause']['likely'] for item in diagnoses),
+            'possible': possible,
+            'confidence': confidence,
+            'evidence_lines': evidence_lines,
+            'uncertainty': 'Possible upstream causes are listed separately; the traceback confirms only the exception and its displayed call path.',
+        },
+        'fix_steps': all_steps,
+        'errors': diagnoses,
+        'next_steps': [
+            'Inspect each final exception line and its deepest application frame.',
+            'Apply the suggested fix for each error, then rerun the same input to verify it.',
+        ],
+    })
+    return base
