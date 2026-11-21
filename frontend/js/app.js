@@ -960,15 +960,23 @@ function renderLogSenseResult(result) {
     const esc = escapeHTML;
     const rows = result.line_explanations || [];
     const ai = result.ai_interpretation;
+    const primaryError = result.errors?.[result.errors.length - 1];
+    const primaryLocation = primaryError?.location || result.where_happened || {};
+    const locationText = primaryLocation.file_path
+        ? `${primaryLocation.file_path}${primaryLocation.line_number ? `:${primaryLocation.line_number}` : ''}${primaryLocation.function ? ` in ${primaryLocation.function}()` : ''}`
+        : primaryLocation.line_number ? `Line ${primaryLocation.line_number}` : 'Not present in the supplied log';
     host.innerHTML = `<article class="logsense-card"><h2>Quick Summary</h2><p>${esc(result.quick_summary)}</p><div class="logsense-badges">${(result.classification||[]).map(x=>`<span>${esc(x)}</span>`).join('')} ${(result.technologies||[]).map(x=>`<span>${esc(x)}</span>`).join('')}<span>Source: ${esc(result.provider||result.source)}</span></div>
         ${result.redactions?.length?`<p class="text-warning">Sensitive values detected (${esc(result.redactions.join(', '))}). The live log remains unchanged; saved history and any external transmission use redacted values.</p>`:''}${result.consent?.required?`<p class="text-secondary">${esc(result.consent.message)}</p>`:''}
-        <div class="logsense-columns"><section><h3>Original Log · click a line</h3><div class="logsense-lines">${rows.map((row,i)=>`<button type="button" class="logsense-line severity-${esc((row.severity||'context').toLowerCase())}" data-line-index="${i}"><span>${row.number}</span><code>${esc(row.original)}</code></button>`).join('')}</div></section><section><h3>Simple Explanation</h3><p id="ls-line-detail">${esc(result.quick_summary)}</p><details open><summary>Analysis detail</summary><p>${esc(result.what_happened||result.quick_summary)}</p><p>${esc(result.why||result.root_cause?.confirmed||result.root_cause?.uncertainty||'Not established from this log.')}</p><p>${esc(result.impact||'')}</p></details></section></div>
-        ${ai?`<details><summary>AI interpretation · ${esc(ai.provider||ai.status)}</summary><p>${esc(ai.summary||ai.error||ai.message||'No additional interpretation returned.')}</p>${ai.possible_causes?`<pre>${esc(JSON.stringify(ai.possible_causes,null,2))}</pre>`:''}</details>`:''}
+        <div class="logsense-columns"><section><h3>Original Log · click a line</h3><div class="logsense-lines">${rows.map((row,i)=>`<button type="button" class="logsense-line severity-${esc((row.severity||'context').toLowerCase())}" data-line-index="${i}"><span>${row.number}</span><code>${esc(row.original)}</code></button>`).join('')}</div></section><section><h3>Simple Explanation</h3><p id="ls-line-detail">${esc(result.quick_summary)}</p><details open><summary>Analysis detail</summary><h4>What happened?</h4><p>${esc(result.what_happened||result.quick_summary)}</p><h4>Why did it happen?</h4><p>${esc(result.why_happened||result.root_cause?.confirmed||result.root_cause?.uncertainty||'Not established from this log.')}</p><h4>Program impact</h4><p>${esc(result.impact||'Impact is not established by the supplied log alone.')}</p></details></section></div>
+        ${ai?`<details><summary>Additional AI interpretation · ${esc(ai.provider||ai.status)} · not verified</summary><p>${esc(ai.summary||ai.what_happened||ai.error||ai.message||'No additional interpretation returned.')}</p>${ai.why_happened?`<p>${esc(ai.why_happened)}</p>`:''}${ai.possible_causes?`<pre>${esc(JSON.stringify(ai.possible_causes,null,2))}</pre>`:''}</details>`:''}
         ${result.technical_terms?.length?`<h3>Technical Terms</h3><dl>${result.technical_terms.map(x=>`<dt><code>${esc(x.term)}</code></dt><dd>${esc(x.definition)}</dd>`).join('')}</dl>`:''}
-        ${result.where?.length?`<h3>Where it happened</h3><ul>${result.where.map(x=>`<li>Log line ${x.line}${x.file_path?` · ${esc(x.file_path)}`:''}${x.line_number?`:${x.line_number}`:''}</li>`).join('')}</ul>`:''}
+        <h3>Error Title and Type</h3><p>${esc(primaryError?.error_title||result.error_type||result.log_type||'Technical log analysis')}</p><p><strong>Severity:</strong> ${esc(primaryError?.severity||result.severity||'Not established')}</p>
+        <h3>Where it happened</h3><p>${esc(locationText)}</p>${primaryError?.source_line||result.failing_source_line?`<pre>${esc(primaryError?.source_line||result.failing_source_line)}</pre>`:''}
+        ${result.errors?.length?`<p>${esc(result.educational_explanation?.traceback_explanation||'Traceback frames show the calls leading to the failure; the final exception line names the error.')}</p>`:''}
         <h3>Root Cause</h3><p>${esc(result.root_cause?.confirmed||'Not established from this log.')}</p>${result.root_cause?.possible?.length?`<ul>${result.root_cause.possible.map(x=>`<li>${esc(x.cause)}${x.evidence_lines?` (evidence: lines ${esc(x.evidence_lines.join(', '))})`:''}</li>`).join('')}</ul>`:''}
-        <h3>Step-by-Step Fix</h3><ol>${(result.fix_steps||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ol><h3>Prevention</h3><p>${esc(result.prevention)}</p><h3>Learning Concept</h3><p>${esc(result.learning_concept)}</p><h3>Next Steps</h3><ul>${(result.next_steps||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
-        ${result.correct_example?`<h3>Correct Example</h3><pre>${esc(result.correct_example)}</pre>`:''}<section class="ls-learning-recommendations" id="ls-learning-recommendations" aria-live="polite"></section><button class="secondary" id="ls-copy-explanation">Copy Explanation</button>
+        <h3>Step-by-Step Fix</h3><ol>${(result.fix_steps||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ol>${result.correct_example?`<h3>Corrected Code · optional-key handling</h3><pre>${esc(result.correct_example)}</pre>`:''}
+        ${result.why_fix_works?`<h3>Why This Fix Works</h3><p>${esc(result.why_fix_works)}</p>`:''}<h3>How to Prevent It</h3><p>${esc(result.prevention||'Add a focused test for this failure and validate boundary inputs.')}</p><h3>Learning Concept</h3><p>${esc(result.learning_concept||'A traceback’s final exception identifies the failure; its frames show how execution reached it.')}</p><h3>Next Steps</h3><ul>${(result.next_steps||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+        <section class="ls-learning-recommendations" id="ls-learning-recommendations" aria-live="polite"></section><button class="secondary" id="ls-copy-explanation">Copy Explanation</button>
         <div class="logsense-actions"><button class="secondary" data-learn="why">Why did this happen?</button><button class="secondary" data-learn="fix">Show the fix</button><button class="secondary" data-learn="word">Explain a technical word</button><button class="secondary" data-learn="example">Real-world example</button><button class="secondary" data-learn="teach">Teach this concept</button><button class="secondary" data-learn="practice">Practice problem</button><button class="secondary" data-learn="quiz">Test my understanding</button></div><div id="ls-learning-response" aria-live="polite"></div>
         <div class="logsense-followup"><input id="ls-question" placeholder="Ask a follow-up about this log" aria-label="Follow-up question"><button class="secondary" id="ls-ask">Ask</button><p class="text-secondary">Follow-up questions use external AI only when the consent checkbox above is enabled.</p></div></article>`;
     const badgeHost = host.querySelector('.logsense-badges');
@@ -979,7 +987,10 @@ function renderLogSenseResult(result) {
             const locationText = location.file_path
                 ? `${location.file_path}${location.line_number ? `:${location.line_number}` : ''}${location.function ? ` in ${location.function}()` : ''}`
                 : 'Location not present in the traceback';
-            return `<details open><summary>${index + 1}. ${esc(error.error_type)} · ${esc(error.severity)}${error.message ? ` · ${esc(error.message)}` : ''}</summary><p><strong>Location:</strong> ${esc(locationText)}</p><p><strong>Confirmed:</strong> ${esc(error.root_cause?.confirmed || 'Not established from this traceback.')}</p><p><strong>Possible cause:</strong> ${esc(error.root_cause?.likely || 'Not established from this traceback.')}</p><p><strong>Suggested solution</strong></p><ol>${(error.fix_steps || []).map(step => `<li>${esc(step)}</li>`).join('')}</ol></details>`;
+            const exceptionRole = error.is_final_exception
+                ? ` · final exception${error.preceding_relation ? ' · chained from prior exception' : ''}`
+                : error.is_secondary ? ' · secondary exception' : ' · earlier exception';
+            return `<details open><summary>${index + 1}. ${esc(error.error_title||error.error_type)} · ${esc(error.severity)}${error.message ? ` · ${esc(error.message)}` : ''}${exceptionRole}</summary><p><strong>Location:</strong> ${esc(locationText)}</p>${error.source_line?`<pre>${esc(error.source_line)}</pre>`:''}${error.frames?.length?`<p><strong>Call path · outermost to failing frame</strong></p><ol>${error.frames.map(frame=>`<li>${esc(frame.file_path)}:${frame.line_number}${frame.function?` in ${esc(frame.function)}()`:''}${frame.source_line?`<pre>${esc(frame.source_line)}</pre>`:''}</li>`).join('')}</ol>`:''}<p><strong>What happened:</strong> ${esc(error.what_error||error.explanation||error.summary||error.error_type)}</p><p><strong>Confirmed:</strong> ${esc(error.root_cause?.confirmed || 'Not established from this traceback.')}</p><p><strong>Possible cause:</strong> ${esc(error.root_cause?.likely || 'Not established from this traceback.')}</p><p><strong>Impact:</strong> ${esc(error.impact||'Execution stopped at this unhandled exception.')}</p><p><strong>Step-by-step fix</strong></p><ol>${(error.fix_steps || []).map(step => `<li>${esc(step)}</li>`).join('')}</ol>${error.corrected_code?`<p><strong>Suggested correction for optional keys:</strong></p><pre>${esc(error.corrected_code)}</pre>`:''}${error.why_fix_works?`<p><strong>Why it works:</strong> ${esc(error.why_fix_works)}</p>`:''}${error.prevention?`<p><strong>Prevention:</strong> ${esc(error.prevention)}</p>`:''}</details>`;
         }).join('');
         host.querySelector('.logsense-columns')?.insertAdjacentHTML('beforebegin', `<section><h3>Detected errors (${result.errors.length})</h3>${individualErrors}</section>`);
     }
@@ -1190,6 +1201,7 @@ function switchTerminalTab(tab) {
             if (analysisResult) {
                 const ai = analysisResult.ai_analysis || {};
                 const static = analysisResult.static_analysis || {};
+                const diagnosis = analysisResult.educational_diagnosis || analysisResult.runtime_diagnosis || ai;
                 let content = '=== Analysis Results ===\n\n';
                 content += `Status: ${analysisResult.analysis_status || 'Unknown'}\n\n`;
                 if (ai.provider) {
@@ -1198,11 +1210,17 @@ function switchTerminalTab(tab) {
                         content += `AI Status: ${ai.error}\n`;
                     }
                 }
-                if (ai.error_category || static.syntax_errors?.length) {
-                    content += `\nError Type: ${ai.error_category || (static.syntax_errors?.length ? 'Syntax Error' : 'Unknown')}\n`;
+                if (diagnosis.error_category || static.syntax_errors?.length) {
+                    content += `\nError Type: ${diagnosis.error_category || (static.syntax_errors?.length ? 'Syntax Error' : 'Unknown')}\n`;
                 }
-                if (ai.summary) {
-                    content += `\nSummary: ${ai.summary}\n`;
+                if (diagnosis.summary) {
+                    content += `\nSummary: ${diagnosis.summary}\n`;
+                }
+                if (diagnosis.affected_file || diagnosis.affected_line) {
+                    content += `\nLocation: ${diagnosis.affected_file || 'Unknown file'}${diagnosis.affected_line ? `:${diagnosis.affected_line}` : ''}${diagnosis.function_name ? ` in ${diagnosis.function_name}()` : ''}\n`;
+                }
+                if (diagnosis.fix_steps?.length) {
+                    content += `\nHow to fix:\n${diagnosis.fix_steps.map((step, index) => `  ${index + 1}. ${step}`).join('\n')}\n`;
                 }
                 if (static.syntax_errors?.length) {
                     content += `\nSyntax Errors:\n${static.syntax_errors.map(e => `  Line ${e.line}: ${e.message}`).join('\n')}\n`;
@@ -1210,8 +1228,8 @@ function switchTerminalTab(tab) {
                 if (static.undefined_names?.length) {
                     content += `\nUndefined Names: ${static.undefined_names.join(', ')}\n`;
                 }
-                if (ai.confidence) {
-                    content += `\nConfidence: ${ai.confidence}%\n`;
+                if (diagnosis.confidence) {
+                    content += `\nConfidence: ${diagnosis.confidence}%\n`;
                 }
                 terminalOutput.textContent = content;
             } else {
@@ -1388,31 +1406,53 @@ async function analyzeCode() {
         const aiResult = result.ai_analysis || {};
         const staticResult = result.static_analysis || {};
         const runtimeDiagnosis = result.runtime_diagnosis || {};
+        const education = result.educational_diagnosis || runtimeDiagnosis;
         
-        // Determine effective diagnosis (prefer AI, fallback to runtime/static)
-        const effectiveDiagnosis = aiResult.error ? runtimeDiagnosis : aiResult;
+        // Deterministic evidence remains primary; AI content is rendered separately as supplemental.
+        const effectiveDiagnosis = education.detection_source === 'ai_unverified' ? aiResult : education;
+        const aiSupplement = effectiveDiagnosis.ai_supplement || {};
+        const location = effectiveDiagnosis.affected_file
+            ? `${effectiveDiagnosis.affected_file}${effectiveDiagnosis.affected_line ? `:${effectiveDiagnosis.affected_line}` : ''}${effectiveDiagnosis.function_name ? ` in ${effectiveDiagnosis.function_name}()` : ''}`
+            : effectiveDiagnosis.affected_line ? `Line ${effectiveDiagnosis.affected_line}` : '';
+        const frameList = (effectiveDiagnosis.frames || []).map((frame, index) =>
+            `<li>${index + 1}. ${escapeHTML(frame.file_path)}:${frame.line_number}${frame.function_name ? ` in ${escapeHTML(frame.function_name)}()` : ''}${frame.code_line ? `<pre>${escapeHTML(frame.code_line)}</pre>` : ''}</li>`
+        ).join('');
+        const fixSteps = effectiveDiagnosis.fix_steps || effectiveDiagnosis.step_by_step || [];
+        const causeList = Array.isArray(effectiveDiagnosis.possible_causes)
+            ? effectiveDiagnosis.possible_causes.map(item => typeof item === 'string' ? item : item?.cause).filter(Boolean).join('\n')
+            : effectiveDiagnosis.possible_causes;
+        const comparison = effectiveDiagnosis.suggested_code && code
+            ? `<details class="diagnosis-item"><summary>Compare original and suggested code</summary><div class="diagnosis-value" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px"><div><strong>Original</strong><pre>${escapeHTML(code)}</pre></div><div><strong>Suggested</strong><pre>${escapeHTML(effectiveDiagnosis.suggested_code)}</pre></div></div></details>`
+            : '';
         
         aiDiagnosisContent.innerHTML = `
             <div class="diagnosis-item"><div class="diagnosis-label">AI Provider</div><div class="diagnosis-value ai">${escapeHTML(aiResult.provider || 'Static Only')}${aiResult.model ? ` (${escapeHTML(aiResult.model)})` : ''}</div></div>
             ${aiResult.error || aiResult.status === 'consent_required' ? `<div class="diagnosis-item"><div class="diagnosis-label">AI Analysis Status</div><div class="diagnosis-value ${aiResult.error ? 'text-error' : 'text-warning'}">${escapeHTML(aiResult.error || aiResult.message || aiResult.status)}${aiResult.error_type ? ` · ${escapeHTML(aiResult.error_type)}` : ''}</div></div>` : ''}
+            ${effectiveDiagnosis.detection_source === 'ai_unverified' ? '<div class="diagnosis-item"><div class="diagnosis-label">Evidence Status</div><div class="diagnosis-value text-warning">AI-only hypothesis · verify against the source and runtime logs</div></div>' : ''}
+            ${effectiveDiagnosis.error_title ? `<div class="diagnosis-item"><div class="diagnosis-label">Error Title</div><div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.error_title)}</div></div>` : ''}
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Error Type</div>
                 <div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.error_category || runtimeDiagnosis.error_category || 'Static analysis')}</div>
             </div>
+            ${effectiveDiagnosis.exception_message ? `<div class="diagnosis-item"><div class="diagnosis-label">Exception Message</div><div class="diagnosis-value"><code>${escapeHTML(effectiveDiagnosis.exception_message)}</code></div></div>` : ''}
+            ${location ? `<div class="diagnosis-item"><div class="diagnosis-label">Error Location</div><div class="diagnosis-value">${escapeHTML(location)}${effectiveDiagnosis.failing_source_line ? `<pre>${escapeHTML(effectiveDiagnosis.failing_source_line)}</pre>` : ''}</div></div>` : ''}
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Severity</div>
-                <div class="diagnosis-value ${effectiveDiagnosis.error_category?.includes('Error') ? 'text-error' : 'text-warning'}">${effectiveDiagnosis.error_category?.includes('Error') ? 'High' : 'Medium'}</div>
+                <div class="diagnosis-value ${effectiveDiagnosis.error_category?.includes('Error') || effectiveDiagnosis.error_category?.includes('500') ? 'text-error' : 'text-warning'}">${effectiveDiagnosis.error_category?.includes('Error') || effectiveDiagnosis.error_category?.includes('500') ? 'High' : 'Medium'}</div>
             </div>
             <div class="diagnosis-item">
-                <div class="diagnosis-label">Summary</div>
+                <div class="diagnosis-label">What Happened?</div>
                 <div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.summary || runtimeDiagnosis.summary || 'Review the static findings below.')}</div>
             </div>
+            ${effectiveDiagnosis.confirmed_findings || effectiveDiagnosis.root_cause ? `<div class="diagnosis-item"><div class="diagnosis-label">Confirmed Finding</div><div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.confirmed_findings || effectiveDiagnosis.root_cause)}</div></div>` : ''}
+            ${effectiveDiagnosis.likely_root_cause || effectiveDiagnosis.why_happened ? `<div class="diagnosis-item"><div class="diagnosis-label">${effectiveDiagnosis.likely_root_cause ? 'Likely Cause (not confirmed)' : 'Why Did It Happen?'}</div><div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.likely_root_cause || effectiveDiagnosis.why_happened)}</div></div>` : ''}
+            ${effectiveDiagnosis.impact ? `<div class="diagnosis-item"><div class="diagnosis-label">Program Impact</div><div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.impact)}</div></div>` : ''}
             ${staticResult.syntax_errors?.length ? `<div class="diagnosis-item"><div class="diagnosis-label">Syntax errors</div><div class="diagnosis-value text-error">${escapeHTML(staticResult.syntax_errors.map(item => `Line ${item.line}: ${item.message}`).join('\n'))}</div></div>` : ''}
             ${staticResult.undefined_names?.length ? `<div class="diagnosis-item"><div class="diagnosis-label">Possibly undefined names</div><div class="diagnosis-value text-warning">${escapeHTML(staticResult.undefined_names.map(item => item.name || item).join(', '))}</div></div>` : ''}
-            ${effectiveDiagnosis.possible_causes ? `
+            ${causeList ? `
             <div class="diagnosis-item">
-                <div class="diagnosis-label">Possible Causes</div>
-                <div class="diagnosis-value ai">${escapeHTML(Array.isArray(effectiveDiagnosis.possible_causes) ? effectiveDiagnosis.possible_causes.join(', ') : effectiveDiagnosis.possible_causes)}</div>
+                <div class="diagnosis-label">Possible Causes to Check</div>
+                <div class="diagnosis-value ai">${escapeHTML(causeList)}</div>
             </div>
             ` : ''}
             ${effectiveDiagnosis.undefined_variable ? `
@@ -1427,18 +1467,23 @@ async function analyzeCode() {
                 <div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.available_functions.join(', '))}</div>
             </div>
             ` : ''}
-            ${effectiveDiagnosis.suggested_fix ? `
+            ${fixSteps.length ? `
             <div class="diagnosis-item">
-                <div class="diagnosis-label">Suggested Fix</div>
-                <div class="diagnosis-value ai">${escapeHTML(effectiveDiagnosis.suggested_fix)}</div>
+                <div class="diagnosis-label">How to Fix It</div>
+                <ol class="diagnosis-value">${fixSteps.map(step => `<li>${escapeHTML(step)}</li>`).join('')}</ol>
             </div>
             ` : ''}
             ${effectiveDiagnosis.suggested_code ? `
             <div class="diagnosis-item">
-                <div class="diagnosis-label">Corrected Code</div>
+                <div class="diagnosis-label">Suggested Correction</div>
                 <div class="diagnosis-value code"><pre>${escapeHTML(effectiveDiagnosis.suggested_code)}</pre></div>
             </div>
             ` : ''}
+            ${comparison}
+            ${effectiveDiagnosis.why_fix_works ? `<div class="diagnosis-item"><div class="diagnosis-label">Why This Fix Works</div><div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.why_fix_works)}</div></div>` : ''}
+            ${effectiveDiagnosis.prevention ? `<div class="diagnosis-item"><div class="diagnosis-label">How to Prevent It</div><div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.prevention)}</div></div>` : ''}
+            ${frameList ? `<details class="diagnosis-item"><summary>Traceback call path · outermost to failing frame</summary><ol class="diagnosis-value">${frameList}</ol><p>The final exception is the failure; these frames show the calls that led to it.</p></details>` : ''}
+            ${aiSupplement.summary || aiSupplement.explanation || aiSupplement.what_happened ? `<details class="diagnosis-item"><summary>Additional AI explanation · unverified suggestions</summary><p>${escapeHTML(aiSupplement.what_happened || aiSupplement.summary || aiSupplement.explanation)}</p>${aiSupplement.why_happened ? `<p>${escapeHTML(aiSupplement.why_happened)}</p>` : ''}${Array.isArray(aiSupplement.step_by_step || aiSupplement.how_to_fix) ? `<ol>${(aiSupplement.step_by_step || aiSupplement.how_to_fix).map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ol>` : ''}${Array.isArray(aiSupplement.possible_causes) ? `<ul>${aiSupplement.possible_causes.map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul>` : ''}</details>` : ''}
             <div class="diagnosis-item">
                 <div class="diagnosis-label">Confidence</div>
                 <div class="diagnosis-value">${Number.isFinite(effectiveDiagnosis.confidence) ? `${effectiveDiagnosis.confidence}%` : (aiResult.error ? 'Static only' : 'Not provided')}</div>
@@ -1523,7 +1568,7 @@ async function repairCode() {
             source_code: code,
             error_message: actualError || 'No error message',
             traceback: actualError,
-            diagnosis: analysisResult?.ai_analysis || {},
+            diagnosis: analysisResult?.educational_diagnosis || analysisResult?.runtime_diagnosis || analysisResult?.ai_analysis || {},
             language: 'python',
             session_id: currentSessionId,
             allow_external_ai: document.getElementById('ai-share-consent')?.checked === true,

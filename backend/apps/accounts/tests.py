@@ -129,6 +129,17 @@ class RegistrationFlowTests(APITestCase):
         self.assertEqual(response['Access-Control-Allow-Origin'], origin)
 
     @override_settings(CORS_ALLOW_ALL_ORIGINS=False)
+    def test_production_vercel_domain_passes_cors_preflight(self):
+        origin = 'https://bugsenseai-frontend.vercel.app'
+        response = self.client.options(
+            REGISTER_URL,
+            HTTP_ORIGIN=origin,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type',
+        )
+        self.assertEqual(response['Access-Control-Allow-Origin'], origin)
+
+    @override_settings(CORS_ALLOW_ALL_ORIGINS=False)
     def test_unrelated_vercel_preview_origin_is_not_allowed(self):
         response = self.client.options(
             REGISTER_URL,

@@ -179,6 +179,51 @@ class LogSenseTests(TestCase):
                 self.assertTrue(result['root_cause']['possible'])
                 self.assertEqual(len(result['errors']), 1)
 
+    def test_traceback_source_context_and_educational_sections_are_available(self):
+        log = (
+            'Traceback (most recent call last):\n'
+            '  File "lookup.py", line 12, in find_user\n'
+            '    return users["mark"]\n'
+            "KeyError: 'mark'"
+        )
+        result = explain_local(log)
+        error = result['errors'][0]
+        self.assertEqual(error['location']['source_line'], '    return users["mark"]')
+        self.assertEqual(error['frames'][0]['function'], 'find_user')
+        self.assertIn('users.get', error['corrected_code'])
+        self.assertIn('optional', ' '.join(error['fix_steps']).lower())
+        for field in ('what_error', 'why_happened', 'impact', 'step_by_step', 'why_fix_works', 'prevention'):
+            with self.subTest(field=field):
+                self.assertTrue(error[field])
+        self.assertIn('Traceback', result['educational_explanation']['traceback_explanation'])
+
+    def test_database_http_javascript_and_api_error_matrix_is_classified(self):
+        cases = [
+            ('django.db.utils.OperationalError: no such table: auth_user', 'Django missing table', 'ERROR'),
+            ('psycopg.OperationalError: connection to server at "db" failed: Connection refused', 'Database connection failure', 'ERROR'),
+            ('HTTP/1.1 404 Not Found', 'HTTP 404', 'ERROR'),
+            ('HTTP/1.1 500 Internal Server Error', 'HTTP 500', 'ERROR'),
+            ('ReferenceError: customerName is not defined', 'JavaScript ReferenceError', 'ERROR'),
+            ("TypeError: Cannot read properties of undefined (reading 'id')", 'JavaScript TypeError', 'ERROR'),
+            ('API request timed out after 30 seconds', 'API timeout', 'ERROR'),
+        ]
+        for log, expected_type, expected_severity in cases:
+            with self.subTest(log=log):
+                result = explain_local(log)
+                self.assertEqual(result['error_type'], expected_type)
+                self.assertEqual(result['severity'], expected_severity)
+                self.assertTrue(result['root_cause']['confirmed'])
+                self.assertTrue(result['fix_steps'])
+                self.assertNotIn('cannot be identified confidently', result['quick_summary'].lower())
+
+    def test_log_levels_preserve_critical_and_debug_categories(self):
+        critical = explain_local('CRITICAL: service unavailable')
+        debug = explain_local('DEBUG: retry loop started')
+        self.assertEqual(critical['severity'], 'CRITICAL')
+        self.assertIn('CRITICAL', critical['classification'])
+        self.assertEqual(debug['severity'], 'DEBUG')
+        self.assertIn('DEBUG', debug['classification'])
+
     def test_multiple_python_tracebacks_keep_each_exception_and_location(self):
         log = (
             'Traceback (most recent call last):\n'
@@ -197,6 +242,10 @@ class LogSenseTests(TestCase):
         self.assertEqual(result['error_type'], 'Multiple Python exceptions')
         self.assertEqual(result['exception_types'], ['KeyError', 'ZeroDivisionError'])
         self.assertEqual(len(result['errors']), 2)
+        self.assertTrue(result['errors'][1]['is_secondary'])
+        self.assertTrue(result['errors'][1]['is_final_exception'])
+        self.assertEqual(result['errors'][1]['preceding_relation'], 'during_handling')
+        self.assertIn('chained exception', result['quick_summary'].lower())
         self.assertIn('KeyError', result['quick_summary'])
         self.assertIn('ZeroDivisionError', result['quick_summary'])
         self.assertEqual(
@@ -284,6 +333,10 @@ class LogSenseTests(TestCase):
         self.assertNotIn('private-token-value', captured['args'][3])
         self.assertTrue(response.data['redactions'])
         self.assertTrue(response.data['external_processing'])
+        self.assertEqual(
+            captured['kwargs']['deterministic_diagnosis']['error_type'],
+            'Unknown / informational',
+        )
         session = self.user.sessions.get()
         self.assertNotIn('private-token-value', session.terminal_logs)
         self.assertNotIn('private-token-value', session.analyses.get().diagnosis)

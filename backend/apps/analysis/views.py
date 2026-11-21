@@ -24,6 +24,39 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
+def _combine_diagnoses(deterministic, ai_result):
+    """Keep detected facts authoritative and attach AI content only as context."""
+    ai_result = ai_result or {}
+    category = deterministic.get('error_category')
+    has_confirmed_error = bool(
+        category
+        and category != 'Unknown'
+        and deterministic.get('detection_source') == 'deterministic'
+    )
+    if not has_confirmed_error:
+        return {
+            **ai_result,
+            'detection_source': 'ai_unverified' if not ai_result.get('error') else 'static_only',
+        }
+
+    supplement_fields = (
+        'summary', 'what_happened', 'why_happened', 'impact', 'step_by_step',
+        'how_to_fix', 'corrected_code', 'why_fix_works', 'prevention',
+        'possible_causes', 'explanation',
+    )
+    supplement = {
+        key: ai_result[key]
+        for key in supplement_fields
+        if ai_result.get(key) not in (None, '', [])
+    }
+    combined = {**ai_result, **deterministic}
+    combined['provider'] = ai_result.get('provider')
+    combined['model'] = ai_result.get('model')
+    combined['ai_supplement'] = supplement
+    combined['detection_source'] = 'deterministic'
+    return combined
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def ai_provider_health(request):
@@ -143,15 +176,28 @@ def create_analysis(request):
         static_result['error'] = 'Static analysis could not complete.'
 
     traceback_analysis = None
-    runtime_diagnosis = None
-    if terminal_logs:
-        try:
-            runtime_diagnosis = CodeAnalyzer.analyze_error_context(source_code, error_message or terminal_logs)
-            parsed = ErrorParser.parse_traceback(terminal_logs)
-            if parsed:
-                traceback_analysis = {
-                    'exception_type': parsed.exception_type,
-                    'exception_message': parsed.exception_message,
+    diagnostic_input = error_message or terminal_logs
+    try:
+        parsed_tracebacks = ErrorParser.parse_tracebacks(terminal_logs)
+        placeholder_error = (
+            not isinstance(error_message, str)
+            or not error_message.strip()
+            or error_message.strip().lower() in ('no error message', 'unknown error')
+        )
+        diagnostic_input = (
+            terminal_logs
+            if parsed_tracebacks or placeholder_error and terminal_logs.strip()
+            else error_message or terminal_logs
+        )
+        runtime_diagnosis = CodeAnalyzer.analyze_error_context(source_code, diagnostic_input)
+        if parsed_tracebacks:
+            primary = parsed_tracebacks[-1]
+            tracebacks = [
+                {
+                    'exception_type': item.exception_type,
+                    'exception_message': item.exception_message,
+                    'exception_line': item.exception_line,
+                    'preceding_relation': item.preceding_relation,
                     'frames': [
                         {
                             'file_path': frame.file_path,
@@ -159,11 +205,19 @@ def create_analysis(request):
                             'function_name': frame.function_name,
                             'code_line': frame.code_line,
                         }
-                        for frame in parsed.frames
+                        for frame in item.frames
                     ],
                 }
-        except Exception:
-            logger.exception('Traceback parsing failed for user_id=%s', request.user.id)
+                for item in parsed_tracebacks
+            ]
+            traceback_analysis = {
+                **tracebacks[-1],
+                'tracebacks': tracebacks,
+                'primary_exception_type': primary.exception_type,
+            }
+    except Exception:
+        logger.exception('Deterministic diagnosis failed for user_id=%s', request.user.id)
+        runtime_diagnosis = None
 
     from services.provider_router import settings_for
     provider_settings = settings_for(request.user)
@@ -171,7 +225,20 @@ def create_analysis(request):
     if allow_external_ai or selected_mode == 'local':
         try:
             from services.provider_router import analyze
-            ai_result = asyncio.run(analyze(request.user, error_message, terminal_logs, source_code, language, provider_settings=provider_settings))
+            ai_error_message = (
+                diagnostic_input
+                if isinstance(diagnostic_input, str) and diagnostic_input.strip()
+                else error_message
+            )
+            ai_result = asyncio.run(analyze(
+                request.user,
+                ai_error_message,
+                terminal_logs,
+                source_code,
+                language,
+                provider_settings=provider_settings,
+                deterministic_diagnosis=runtime_diagnosis,
+            ))
             if ai_result.get('error'):
                 ai_result['status'] = 'failed'
             else:
@@ -190,18 +257,19 @@ def create_analysis(request):
             'provider': selected_mode,
         }
 
+    effective_diagnosis = _combine_diagnoses(runtime_diagnosis or {}, ai_result)
     analysis_status = 'complete' if ai_result.get('status') == 'complete' else 'partial'
     try:
-        confidence = ai_result.get('confidence')
+        confidence = effective_diagnosis.get('confidence')
         if not isinstance(confidence, int):
             confidence = None
         AnalysisResult.objects.create(
             session=session,
-            diagnosis=json.dumps(ai_result),
+            diagnosis=json.dumps(effective_diagnosis),
             evidence_json=static_result,
-            error_category=ai_result.get('error_category'),
-            affected_file=ai_result.get('affected_file'),
-            affected_line=ai_result.get('affected_line') if isinstance(ai_result.get('affected_line'), int) else None,
+            error_category=effective_diagnosis.get('error_category'),
+            affected_file=effective_diagnosis.get('affected_file'),
+            affected_line=effective_diagnosis.get('affected_line') if isinstance(effective_diagnosis.get('affected_line'), int) else None,
             confidence=confidence,
         )
         session.status = 'ANALYZED' if analysis_status == 'complete' else 'ANALYSIS_PARTIAL'
@@ -213,6 +281,7 @@ def create_analysis(request):
         'analysis_status': analysis_status,
         'static_analysis': static_result,
         'runtime_diagnosis': runtime_diagnosis,
+        'educational_diagnosis': effective_diagnosis,
         'traceback_analysis': traceback_analysis,
         'ai_analysis': ai_result,
         'session_id': session.id,

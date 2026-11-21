@@ -46,10 +46,28 @@ def explain_log(request):
             from services.provider_router import analyze
             question = request.data.get('question', '')
             prompt = question if isinstance(question, str) and question.strip() else 'Interpret this technical log. Explain evidence, likely causes and uncertainty.'
-            ai = asyncio.run(analyze(request.user, prompt, redacted, redacted, f'technical log; explanation language={language}; level={level}', provider_settings=prefs))
+            ai = asyncio.run(analyze(
+                request.user,
+                prompt,
+                redacted,
+                redacted,
+                f'technical log; explanation language={language}; level={level}',
+                provider_settings=prefs,
+                deterministic_diagnosis={
+                    'error_type': result.get('error_type'),
+                    'exception_type': result.get('exception_type'),
+                    'severity': result.get('severity'),
+                    'quick_summary': result.get('quick_summary'),
+                    'root_cause': result.get('root_cause'),
+                    'where': result.get('where'),
+                    'fix_steps': result.get('fix_steps'),
+                    'errors': result.get('errors'),
+                },
+            ))
             result['ai_interpretation'] = ai
             result['external_processing'] = True
-            if ai.get('status') == 'complete': result['provider'] = ai.get('provider', 'Configured provider')
+            if ai.get('status') == 'complete':
+                result['ai_provider'] = ai.get('provider', 'Configured provider')
         except Exception:
             result['ai_interpretation'] = {'status':'failed','error':'External interpretation could not complete.'}
     elif prefs.mode != 'local':

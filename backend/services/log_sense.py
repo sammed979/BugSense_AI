@@ -1,4 +1,5 @@
 """Evidence-led local interpretation for technical logs. Never executes log contents."""
+import ast
 import re
 
 MAX_LOG_CHARS = 100_000
@@ -26,9 +27,12 @@ def redact_secrets(value):
 RULES = [
     ('Django missing table', 'Python / Django / SQLite', r'(?:no such table:\s*["`]?([\w.]+)|relation\s+["\']([^"\']+)["\']\s+does not exist)', 'The connected database does not contain the referenced table `{identifier}`.', 'Confirmed: the database engine reported that table `{identifier}` is absent in the database connection used by this process. This log does not show a connectivity failure. The reason the table is absent is not established.', ['Check `DATABASES` in the active settings and confirm the expected database file or server/schema.', 'Run `python manage.py showmigrations` and check whether the relevant app migrations are applied.', 'If model changes have no migration, run `python manage.py makemigrations <app>` after reviewing the generated migration.', 'Apply pending migrations with `python manage.py migrate`.', 'If this table belongs to a custom user model, confirm `AUTH_USER_MODEL` and that its app migration is installed before dependent migrations.'], 'A table is created by schema migrations; the application can connect successfully while a required table is missing.', 'Apply reviewed migrations to the same configured database the application uses.'),
     ('Python NameError', 'Python', r'NameError:\s*name\s+[\'\"]([^\'\"]+)[\'\"]\s+is not defined', 'Python reached a reference to `{identifier}`, but no variable with that name was available in the current scope.', 'This confirms that `{identifier}` was unresolved at runtime. The log cannot tell whether it was misspelled, never assigned, or out of scope.', ['Check the spelling and capitalization of `{identifier}`.', 'Define or import `{identifier}` before the failing line, or replace it with the intended existing name.', 'If the name is local to a function, pass it in or define it in that function.'], 'Python resolves variable names in the active local and enclosing scopes before raising NameError.', 'Use linters and tests that execute the failing path.'),
+    ('Python KeyError', 'Python', r'KeyError:\s*(.+)', 'Python tried to retrieve key `{identifier}`, but the mapping did not contain that key at lookup time.', 'The traceback confirms the lookup failed. It cannot establish whether the key was misspelled, omitted from input, or removed earlier.', ['Inspect the mapping and requested key at the reported source line.', 'If the key is optional, use `.get()` and handle the missing-value result.', 'If the key is required, validate its presence and report invalid input clearly.'], 'A dictionary lookup with square brackets raises KeyError when the requested key is absent.', 'Validate external data before indexing dictionaries and test missing-key cases.'),
     ('Python TypeError', 'Python', r'TypeError:\s*(?!Cannot read properties)(.+)', 'Python rejected an operation because its value or argument types do not fit that operation: {detail}', 'The TypeError message identifies the operation Python could not perform; inspect the values at that call site.', ['Read the full TypeError text to identify the operation and expected types.', 'Inspect the values immediately before the reported call.', 'Convert or validate the value only if that matches the intended data model.'], 'Dynamic typing permits values of different types, but each operation still has type requirements.', 'Validate inputs at system boundaries and test both normal and edge values.'),
     ('Python IndexError', 'Python', r'IndexError:\s*(.+)', 'Python tried to access a sequence position that is not present: {detail}', 'The log establishes an invalid index access; it does not establish why the sequence was shorter than expected.', ['Inspect the sequence length at the failing line.', 'Check loop bounds and whether an empty sequence is possible.', 'Guard the access or iterate over the sequence directly.'], 'Python sequence indexes start at zero, and the last valid index is length minus one.', 'Test empty, one-item, and boundary-sized sequences.'),
     ('Python ModuleNotFoundError', 'Python', r"ModuleNotFoundError:\s*No module named\s+[\'\"]?([^\'\"\s]+)", 'Python could not import the module `{identifier}` in the environment running this process.', 'The active interpreter could not resolve `{identifier}`. This can mean the dependency is absent, the import name is wrong, or a different Python environment is active.', ['Confirm the import spelling and the package that provides `{identifier}`.', 'Run `python -m pip show {identifier}` using the same interpreter that starts the app.', 'Install the verified package in that environment or activate the intended virtual environment.'], 'Python imports modules from the active interpreter environment; installing into another environment does not make them available here.', 'Use a virtual environment and record dependencies in a requirements file.'),
+    ('Python ImportError', 'Python', r"ImportError:\s*(.+)", 'Python could not complete the requested import: {detail}', 'The exception confirms an import failed. The message identifies the module or name that could not be loaded, but may not distinguish a missing export from a circular import.', ['Check the exact imported name and the module that is expected to provide it.', 'Confirm the module path and active Python environment.', 'If the name exists, inspect imports for a circular dependency and move shared definitions to a neutral module.'], 'Python imports resolve modules and exported names at runtime; a module can exist while a requested name does not.', 'Keep module dependencies explicit and test imports in the deployment environment.'),
+    ('Python ValueError', 'Python', r'ValueError:\s*(.+)', 'Python received a value that is not valid for the requested operation: {detail}', 'The message confirms that the value failed an operation-specific validation; inspect the value and conversion shown in the failing frame.', ['Read the full message to identify the rejected value or expected format.', 'Validate or normalize the input before the operation.', 'Handle invalid values explicitly instead of silently substituting a different value.'], 'ValueError is used when an argument has an acceptable type but an unacceptable value.', 'Test empty, malformed, and boundary input values.'),
     ('Python ZeroDivisionError', 'Python', r'ZeroDivisionError:\s*(.+)', 'Python attempted to divide by zero: {detail}', 'The exception confirms the divisor evaluated to zero at runtime.', ['Inspect the denominator at the reported operation.', 'Decide how zero should be handled for this calculation.', 'Add a zero check or use a domain-appropriate alternative before dividing.'], 'Division by zero is undefined for ordinary real-number arithmetic and raises an exception in Python.', 'Test zero and boundary values for every division operation.'),
     ('Python SyntaxError', 'Python', r'SyntaxError:\s*(.*)', 'Python could not parse the source text: {detail}', 'The parser rejected the source before that code could run. The reported line and caret are the strongest location evidence.', ['Inspect the reported line and the line immediately before it.', 'Balance quotes, parentheses, brackets and indentation.', 'Run the file again after correcting the syntax at the reported location.'], 'A parser checks source grammar before executing the program.', 'Run a syntax check or formatter in the edit loop.'),
     ('Django migration error', 'Django', r'(?:No migrations? detected|no such column|OperationalError:.*(?:table|column|locked)|InconsistentMigrationHistory|Migration\w*Conflict)', 'Django’s migration state and the database schema appear inconsistent: {detail}', 'This message points to migration discovery, ordering, or schema state. It does not by itself prove which migration should be applied or reversed.', ['Read the complete migration error and identify the app or table it names.', 'Check `python manage.py showmigrations` and inspect recent migration files.', 'Create or apply a migration only after confirming the model and database state.'], 'Django migrations are versioned schema changes; model code and applied database migrations can drift apart.', 'Review generated migrations and back up important databases before schema changes.'),
@@ -40,6 +44,7 @@ RULES = [
     ('React rendering error', 'React', r'(?:Objects are not valid as a React child|Too many re-renders|Each child in a list should have a unique "key"|React has detected a change in the order of Hooks)', 'React reported a rendering or component-contract issue: {detail}', 'The message identifies a React rendering invariant or warning; a component stack, when present, narrows the affected component.', ['Find the first component named in the component stack.', 'Check whether render output matches the expected React child type and hook order.', 'Fix the component invariant before suppressing the warning.'], 'React relies on stable hook order and renderable child values between renders.', 'Keep rendering pure and test components with empty and populated data.'),
     ('Node.js module not found', 'Node.js', r"(?:Error: )?Cannot find module\s+[\'\"]([^\'\"]+)[\'\"]", 'Node.js could not resolve the module `{identifier}` from this process.', 'Module resolution failed for `{identifier}`. The log does not establish whether it is a missing dependency, wrong path, or install-directory mismatch.', ['Check whether `{identifier}` is a project file or a package dependency.', 'For a package, verify it appears in `package.json` and run `npm install` in the project root.', 'For a local module, check the relative path and filename casing.'], 'Node resolves local paths relative to the importing file and packages from node_modules.', 'Commit lockfiles and run installs from the documented project root.'),
     ('MySQL access denied', 'MySQL', r'Access denied for user\s+[\'\"]?([^\'\"@\s]+)[\'\"]?@?[\'\"]?([^\'\"\s]+)?', 'MySQL rejected authentication or privileges for the account shown: {detail}', 'The server was reached far enough to reject the account. The log does not show whether the password, host grant, or requested privileges are wrong.', ['Confirm the application uses the expected account and host.', 'Check the account’s grants and secret configuration without printing credentials.', 'Grant only the privileges required by the application.'], 'MySQL accounts include both a username and a host pattern, and privileges are checked per account.', 'Keep credentials in a secret store and separate development and production accounts.'),
+    ('API timeout', 'API / Networking', r'(?:(?:API|HTTP|upstream|request).*(?:timeout|timed out|ETIMEDOUT)|(?:timeout|timed out|ETIMEDOUT).*(?:API|HTTP|upstream|request))', 'The API request did not complete before its timeout: {detail}', 'The client observed that this request exceeded its time limit. The log alone does not prove whether the API was slow, unreachable, or waiting on a downstream service.', ['Correlate the request ID and timestamp with the API server and upstream logs.', 'Check the configured timeout and the duration of the failing operation.', 'Retry only if the operation is safe to repeat; otherwise verify whether the server completed it before retrying.'], 'A timeout limits how long a client waits; it does not identify which part of the request was slow.', 'Record request IDs and latency, and use bounded retries for operations that are safe to repeat.'),
     ('Database connection failure', 'Databases', r"(?:ECONNREFUSED|connection refused|could not connect to server|Can't connect to MySQL server|OperationalError.*(?:connect|connection)|SQLSTATE\[08001\]|MySQL.*timed out)", 'The application could not establish a connection to the database service: {detail}', 'The log shows a connection failure, not an authentication failure. It does not prove whether the service is stopped, the address is wrong, or a network rule blocked it.', ['Check that the database service is running and listening.', 'Verify the configured host, port, and container/network mapping.', 'Check firewall and service logs before changing credentials.'], 'Database connection setup happens before query permissions or SQL execution.', 'Add a health check and keep connection settings environment-specific.'),
     ('SQL syntax error', 'Databases', r'(?:SQL syntax|syntax error at or near|You have an error in your SQL syntax)', 'The database parser rejected the SQL statement near the reported token: {detail}', 'This is a query parsing error. The exact cause needs the query text and database dialect; the nearest token is a clue, not always the source of the mistake.', ['Inspect the complete query and the token or position named by the database.', 'Check quoting, commas, reserved words, and dialect-specific syntax.', 'Use parameterized queries for values and run the corrected statement in a safe test environment.'], 'SQL dialects differ, and the parser often reports where it noticed invalid syntax rather than where it began.', 'Test queries against the same database engine and version used by the application.'),
     ('Git merge conflict', 'Git / GitHub', r'(?:CONFLICT \(.*\)|both modified:|merge conflict)', 'Git found overlapping changes that it cannot merge automatically: {detail}', 'The named file or conflict marker identifies work that requires a deliberate choice; Git has not decided which version is correct.', ['Run `git status` and open each conflicted file.', 'Resolve the `<<<<<<<`, `=======`, and `>>>>>>>` sections using the intended changes.', 'Run relevant tests, then stage the resolved files and continue the merge.'], 'A merge conflict occurs when branches changed overlapping parts of a file.', 'Merge or rebase frequently and test before completing the integration.'),
@@ -110,6 +115,26 @@ def _explain_non_traceback(log_text, level='beginner', language='en'):
     identifier = groups[0] if groups else None
     detail = (groups[-1] if groups else '')
     main_index = None
+    levels = []
+    for marker, label in (
+        (r'\b(?:TRACE|DEBUG)\b', 'DEBUG'),
+        (r'\bINFO\b|\b(?:started|listening|connected|completed|success)\b', 'INFO'),
+        (r'\bWARN(?:ING)?\b|\b(?:deprecated|retrying)\b', 'WARNING'),
+        (r'\bCRITICAL\b|\bFATAL\b', 'CRITICAL'),
+        (r'\bERROR\b', 'ERROR'),
+    ):
+        if re.search(marker, log_text, re.I):
+            levels.append(label)
+    if 'CRITICAL' in levels:
+        severity = 'CRITICAL'
+    elif 'ERROR' in levels:
+        severity = 'ERROR'
+    elif 'WARNING' in levels:
+        severity = 'WARNING'
+    elif 'DEBUG' in levels:
+        severity = 'DEBUG'
+    else:
+        severity = 'INFO'
     if rule:
         for index, line in enumerate(lines):
             if re.search(rule['pattern'], line, re.I):
@@ -119,8 +144,8 @@ def _explain_non_traceback(log_text, level='beginner', language='en'):
 
     locations = [_location(line) for line in lines]
     error_type = rule['name'] if rule else None
-    severity_match = re.search(r'\b(TRACE|DEBUG|INFO|NOTICE|WARN(?:ING)?|ERROR|FATAL|CRITICAL)\b', log_text, re.I)
-    severity = 'ERROR' if rule else (severity_match.group(1).upper() if severity_match else 'INFO')
+    if rule and severity not in ('ERROR', 'CRITICAL'):
+        severity = 'ERROR'
     technologies = [rule['technology']] if rule else []
     if rule and rule['technology'] == 'Docker': technologies = ['Docker / containers']
     if rule and rule['technology'] == 'Git': technologies = ['Git / GitHub']
@@ -138,22 +163,18 @@ def _explain_non_traceback(log_text, level='beginner', language='en'):
         learning_concept = rule['concept']
         prevention = rule['prevention']
         confidence = 0.9 if rule['name'] in ('Python NameError', 'Python ZeroDivisionError', 'Java NullPointerException', 'Django 404', 'HTTP 401', 'HTTP 403', 'HTTP 500') else 0.78
-        classification = ['ERROR']
-        if re.search(r'\bWARN(?:ING)?\b', log_text, re.I):
-            classification = ['WARNING', 'ERROR', 'MIXED']
+        classification = ['CRITICAL' if severity == 'CRITICAL' else 'ERROR']
+        if 'WARNING' in levels:
+            classification = ['WARNING', *classification, 'MIXED']
         evidence_lines = [main_index + 1] if lines else []
         cause_uncertainty = 'The logged error is identified, but upstream conditions may still need confirmation.'
         if rule['name'] == 'Django missing table':
             cause_uncertainty = 'Possible reasons the table is absent include unapplied migrations, using a different database/schema than expected, or a model/app migration configuration issue. The log does not distinguish among these possibilities.'
     else:
         first_line = next((line.strip() for line in lines if line.strip()), '')
-        levels = []
-        for marker, label in ((r'\b(?:TRACE|DEBUG)\b', 'DEBUG'), (r'\bINFO\b|\b(?:started|listening|connected|completed|success)\b', 'INFO'), (r'\bWARN(?:ING)?\b|\b(?:deprecated|retrying)\b', 'WARNING'), (r'\b(?:ERROR|FATAL|CRITICAL)\b', 'ERROR')):
-            if re.search(marker, log_text, re.I): levels.append(label)
         classification = levels or ['INFO']
-        if len([level for level in levels if level in ('WARNING', 'ERROR')]) > 1:
+        if len([level for level in levels if level in ('WARNING', 'ERROR', 'CRITICAL')]) > 1:
             classification.append('MIXED')
-        severity = 'ERROR' if 'ERROR' in levels else 'WARNING' if 'WARNING' in levels else 'INFO'
         quick_summary = (f'Log type cannot be identified confidently from the supplied text: “{first_line[:180]}”.' if first_line else 'The log is empty.')
         root_confirmed = 'The supplied lines do not contain a recognized error signature.'
         cause_uncertainty = 'I could not confidently identify a root cause from this log. The lines below describe only what is present; include the preceding and following events for more context.'
@@ -169,7 +190,7 @@ def _explain_non_traceback(log_text, level='beginner', language='en'):
         role = 'context'
         line_severity = 'context'
         if index == main_index and rule:
-            role, line_severity = 'root_cause', 'error'
+            role, line_severity = 'root_cause', severity.lower()
             line_text = quick_summary
             if rule['name'] == 'Python NameError' and identifier:
                 line_text = f'Python could not find `{identifier}` when this statement ran. Check its spelling, definition and scope.'
@@ -281,54 +302,56 @@ _TRACEBACK_EXCEPTION = re.compile(
 )
 
 
-def _parse_python_tracebacks(log_text):
+def _parse_python_tracebacks(log_text, source_code=None):
+    from services.error_parser import ErrorParser
+
     lines = log_text.splitlines()
-    starts = [index for index, line in enumerate(lines) if _TRACEBACK_START.search(line)]
     tracebacks = []
-    for position, start in enumerate(starts):
-        stop = starts[position + 1] if position + 1 < len(starts) else len(lines)
-        exception_index = None
-        exception_type = None
-        message = ''
-        for index in range(start + 1, stop):
-            raw_line = lines[index]
-            if raw_line[:1].isspace():
-                continue
-            candidate = raw_line.strip()
-            if re.match(r'^(?:TRACE|DEBUG|INFO|NOTICE|WARN(?:ING)?)\s*:', candidate):
-                continue
-            prefix = re.match(r'^(?:ERROR|CRITICAL|FATAL)\s*[:\]-]\s*(.+)$', candidate, re.I)
-            if prefix:
-                candidate = prefix.group(1)
-            match = _TRACEBACK_EXCEPTION.match(candidate)
-            if match:
-                exception_index = index
-                exception_type = match.group('exception_type').rsplit('.', 1)[-1]
-                message = (match.group('message') or '').strip()
-                break
-
+    source_lines = source_code.splitlines() if isinstance(source_code, str) else []
+    for parsed in ErrorParser.parse_tracebacks(log_text):
+        start = parsed.traceback_start_line - 1
+        stop = parsed.traceback_end_line
+        exception_index = parsed.exception_line_number - 1 if parsed.exception_line_number else None
+        frame_indexes = [line_number - 1 for line_number in parsed.frame_log_lines]
+        source_indexes = [line_number - 1 for line_number in parsed.source_log_lines]
         frame_locations = []
-        frame_indexes = []
-        frame_stop = exception_index if exception_index is not None else stop
-        for index in range(start + 1, frame_stop):
-            location = _location(lines[index])
-            if location['file_path'] or location['line_number']:
-                frame_indexes.append(index)
-                frame_locations.append(location)
-
+        for frame in parsed.frames:
+            source_line = frame.code_line
+            if source_line is None and 1 <= frame.line_number <= len(source_lines):
+                source_line = source_lines[frame.line_number - 1].rstrip()
+            frame_locations.append({
+                'file_path': frame.file_path,
+                'line_number': frame.line_number,
+                'function': frame.function_name,
+                'source_line': source_line,
+            })
+        exception_type = parsed.exception_type if parsed.exception_type != 'UnknownError' else None
         tracebacks.append({
             'start_index': start,
             'stop_index': stop,
+            'preceding_relation': parsed.preceding_relation,
             'exception_index': exception_index,
             'exception_type': exception_type,
-            'message': message,
+            'message': parsed.exception_message,
             'frame_indexes': frame_indexes,
+            'source_indexes': source_indexes,
             'frames': frame_locations,
             'location': frame_locations[-1] if frame_locations else {
-                'file_path': None, 'line_number': None, 'function': None,
+                'file_path': None, 'line_number': None, 'function': None, 'source_line': None,
             },
         })
     return lines, tracebacks
+
+
+def _key_lookup_context(source_line, key):
+    if not source_line or not isinstance(key, str) or not key:
+        return None
+    pattern = re.compile(
+        r'(?P<mapping>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*'
+        r'\[\s*(?P<quote>[\'"])' + re.escape(key) + r'(?P=quote)\s*\]'
+    )
+    match = pattern.search(source_line)
+    return match.group('mapping') if match else None
 
 
 def _python_exception_diagnosis(traceback):
@@ -345,6 +368,7 @@ def _python_exception_diagnosis(traceback):
             location_text += f" in {location['function']}"
     elif location['line_number'] is not None:
         location_text = f"line {location['line_number']}"
+    corrected_code = None
 
     if not exception_type:
         summary = 'A Python traceback was detected, but its final exception line is missing.'
@@ -360,19 +384,48 @@ def _python_exception_diagnosis(traceback):
         suffix = f' at {location_text}' if location_text else ''
         actual_message = message or 'no exception message was included'
         identifier = None
+        corrected_code = None
         confidence = 0.82
 
         if exception_type == 'KeyError':
-            identifier = message
-            summary = f'Python could not find the requested key {message or "(key not shown)"} in a mapping{suffix}.'
+            try:
+                key_value = ast.literal_eval(message)
+                key_text = str(key_value)
+                key_display = repr(key_value)
+            except (ValueError, SyntaxError):
+                key_text = message
+                key_display = message or '(key not shown)'
+            identifier = key_text
+            source_line = location.get('source_line')
+            mapping = _key_lookup_context(source_line, key_text)
+            lookup_text = f"`{mapping}[{key_display}]`" if mapping else 'a mapping lookup'
+            summary = f'Python could not find key {key_display} in {lookup_text}{suffix}.'
             confirmed = f'The traceback ends with KeyError{f": {message}" if message else ""}; the requested lookup failed.'
-            likely = f'The mapping did not contain {message or "the requested key"} at lookup time. The traceback does not establish whether the key was misspelled, omitted from input, or removed earlier.'
-            steps = [
-                f'Inspect the mapping and requested key at {location_text}.' if location_text else 'Inspect the mapping and requested key at the final traceback frame.',
-                'Check the key spelling and confirm the input data contains that key.',
-                'If a missing key is valid, handle that case explicitly with a fallback or `.get()`; otherwise validate the required key before lookup.',
-            ]
-            explanation = f'KeyError means Python tried to read key {message or "(not shown)"} from a mapping and that lookup failed.'
+            if source_line:
+                confirmed += f' The failing source line is `{source_line.strip()}`.'
+            likely = f'The mapping did not contain {key_display} at lookup time. The traceback does not establish whether the key was misspelled, omitted from input, or removed earlier.'
+            if mapping:
+                steps = [
+                    f'The failing line indexes mapping `{mapping}` with {key_display}: `{source_line.strip()}`.',
+                    f'If the key is optional, replace the lookup with `{mapping}.get({key_display})` and handle the missing-value result.',
+                    f'If the key is required, check `{key_display} in {mapping}` and report or handle missing input before indexing.',
+                ]
+                lookup_pattern = re.compile(
+                    r'(?P<name>' + re.escape(mapping) + r')\s*'
+                    r'\[\s*(?P<quote>[\'"])' + re.escape(key_text) + r'(?P=quote)\s*\]'
+                )
+                corrected_code = lookup_pattern.sub(
+                    lambda match: f'{match.group("name")}.get({key_display})',
+                    source_line.strip(),
+                    count=1,
+                )
+            else:
+                steps = [
+                    f'Inspect the mapping and requested key at {location_text}.' if location_text else 'Inspect the mapping and requested key at the final traceback frame.',
+                    'Check the key spelling and confirm the input data contains that key.',
+                    'If a missing key is valid, handle that case explicitly with a fallback or `.get()`; otherwise validate the required key.',
+                ]
+            explanation = f'KeyError means Python tried to read key {key_display} from a mapping and that lookup failed.'
             confidence = 0.9
         elif exception_type == 'NameError':
             name_match = re.search(r"name\s+(['\"])(.+?)\1\s+is not defined", message)
@@ -443,6 +496,39 @@ def _python_exception_diagnosis(traceback):
             ]
             explanation = 'ZeroDivisionError means the calculation reached a zero divisor.'
             confidence = 0.9
+        elif exception_type == 'ValueError':
+            summary = f'Python received an invalid value for the requested operation{suffix}: {actual_message}.'
+            confirmed = f'The traceback confirms ValueError: {actual_message}.'
+            likely = 'The value has a type the operation accepts, but its contents or range do not meet the operation requirements.'
+            steps = [
+                f'Inspect the value passed at {location_text}.' if location_text else 'Inspect the value passed at the final traceback frame.',
+                f'Validate the expected format or range before this operation; the message says: {message or "no detail was provided"}.',
+                'Handle invalid values explicitly and preserve the original input for a useful validation message.',
+            ]
+            explanation = f'ValueError means the operation received a value it could not accept: {actual_message}.'
+            confidence = 0.88
+        elif exception_type in ('ImportError', 'ModuleNotFoundError'):
+            summary = f'Python could not complete an import{suffix}: {actual_message}.'
+            confirmed = f'The traceback confirms {exception_type}: {actual_message}.'
+            likely = 'The requested module or name is unavailable in the active environment; if it exists, a wrong import path or circular import may be involved.'
+            steps = [
+                'Check the exact module or name in the final exception message.',
+                'Verify the import path and install dependencies into the same Python environment that runs the application.',
+                'If the name exists, inspect the import chain for circular dependencies.',
+            ]
+            explanation = f'{exception_type} means Python could not load the requested module or name: {actual_message}.'
+            confidence = 0.88
+        elif exception_type == 'SyntaxError':
+            summary = f'Python could not parse source text{suffix}: {actual_message}.'
+            confirmed = f'The traceback confirms SyntaxError: {actual_message}. The reported source location is the parser’s strongest evidence.'
+            likely = 'A syntax token, delimiter, quote, or indentation near the reported line does not match Python grammar.'
+            steps = [
+                f'Inspect the source at {location_text} and the line immediately before it.' if location_text else 'Inspect the parser-reported source line and the line immediately before it.',
+                'Check matching quotes, parentheses, brackets, colons, and indentation.',
+                'Run a syntax check again before executing the program.',
+            ]
+            explanation = f'SyntaxError means Python rejected the source before it could execute: {actual_message}.'
+            confidence = 0.9
         else:
             summary = f'Python raised {exception_type}: {actual_message}{suffix}.'
             confirmed = f'The traceback confirms {exception_type}: {actual_message}.'
@@ -454,33 +540,76 @@ def _python_exception_diagnosis(traceback):
             ]
             explanation = f'Python raised {exception_type}: {actual_message}.'
 
+        source_line = location.get('source_line')
+        if source_line and exception_type != 'KeyError':
+            summary += f' Failing source line: `{source_line.strip()}`.'
+            explanation += f' The failing source line is `{source_line.strip()}`.'
+
     if line_number is not None:
         evidence_lines = [line_number]
     elif traceback['start_index'] is not None:
         evidence_lines = [traceback['start_index'] + 1]
     else:
         evidence_lines = []
+    why_fix_works = {
+        'KeyError': 'Checking for the key or handling its absence before indexing prevents an unhandled missing-key lookup.',
+        'TypeError': 'Matching values and arguments to the operation’s requirements lets Python complete that operation.',
+        'NameError': 'Defining, importing, or passing the referenced name makes it available in the scope where it is used.',
+        'IndexError': 'Checking sequence bounds or iterating over existing items prevents access to an unavailable position.',
+        'ZeroDivisionError': 'Handling a zero divisor before division prevents this arithmetic exception.',
+        'ValueError': 'Validating the value before the operation prevents invalid input from reaching it unchecked.',
+        'ImportError': 'Correcting the import path or environment makes the requested module or name resolvable.',
+        'ModuleNotFoundError': 'Installing or locating the dependency in the active environment makes the requested module importable.',
+        'SyntaxError': 'Correcting the reported grammar issue lets Python parse the source before execution.',
+    }.get(exception_type, 'The suggested steps address the operation and evidence named by this exception.')
+    prevention = {
+        'KeyError': 'Validate external data and test both present-key and missing-key cases.',
+        'TypeError': 'Validate input types at boundaries and test supported operand combinations.',
+        'NameError': 'Use a linter for undefined names and test the execution path that references them.',
+        'IndexError': 'Test empty and boundary-sized sequences; prefer direct iteration when possible.',
+        'ZeroDivisionError': 'Test zero and boundary values for every division operation.',
+        'ValueError': 'Validate formats and ranges at input boundaries, including malformed values.',
+        'ImportError': 'Keep imports explicit and test them in the same environment used to run the application.',
+        'ModuleNotFoundError': 'Record dependencies and install them in the application’s active environment.',
+        'SyntaxError': 'Run a syntax check or formatter while editing.',
+    }.get(exception_type, 'Add a focused test for this exception and validate boundary inputs before the failing operation.')
+    impact = (
+        f'Execution stopped at {location_text or "the final traceback frame"} because this exception was not handled.'
+        if exception_type else 'The traceback is incomplete, so the program impact cannot be confirmed.'
+    )
     return {
         'log_type': 'Python traceback',
+        'error_title': label,
         'error_type': label,
         'exception_type': exception_type,
         'message': message,
         'severity': 'ERROR' if exception_type else 'UNKNOWN',
         'summary': summary,
         'explanation': explanation,
+        'what_error': explanation,
+        'why_happened': confirmed,
         'location': location,
+        'where_happened': location,
+        'source_line': location.get('source_line'),
+        'frames': traceback.get('frames', []),
+        'impact': impact,
         'root_cause': {'confirmed': confirmed, 'likely': likely, 'possible': [likely], 'confidence': confidence},
         'fix_steps': steps,
+        'step_by_step': steps,
+        'corrected_code': corrected_code,
+        'why_fix_works': why_fix_works,
+        'prevention': prevention,
         'identifier': identifier,
         'evidence_lines': evidence_lines,
         'traceback_start_line': traceback['start_index'] + 1,
         'traceback_end_line': traceback['stop_index'],
+        'preceding_relation': traceback.get('preceding_relation'),
     }
 
 
-def explain_local(log_text, level='beginner', language='en'):
+def explain_local(log_text, level='beginner', language='en', source_code=None):
     """Explain a technical log, parsing every Python traceback before generic rules."""
-    lines, tracebacks = _parse_python_tracebacks(log_text)
+    lines, tracebacks = _parse_python_tracebacks(log_text, source_code)
     if not tracebacks:
         result = _explain_non_traceback(log_text, level, language)
         result['log_type'] = result['technologies'][0] if result['technologies'] else 'Technical log'
@@ -499,6 +628,8 @@ def explain_local(log_text, level='beginner', language='en'):
         start = traceback['start_index']
         stop = traceback['stop_index']
         frame_indexes = set(traceback['frame_indexes'])
+        frame_by_index = dict(zip(traceback['frame_indexes'], traceback['frames']))
+        source_indexes = set(traceback['source_indexes'])
         exception_index = traceback['exception_index']
         for index in range(start, stop):
             row = records[index]
@@ -509,7 +640,8 @@ def explain_local(log_text, level='beginner', language='en'):
                     explanation='This line starts a Python traceback. The final exception line identifies the error; the frames show the call path.',
                 )
             elif index in frame_indexes:
-                location = _location(lines[index])
+                location = frame_by_index[index]
+                row['source_line'] = location.get('source_line')
                 row.update(
                     role='stack_frame',
                     severity='context',
@@ -519,6 +651,12 @@ def explain_local(log_text, level='beginner', language='en'):
                         + (f" inside {location['function']}" if location['function'] else '')
                         + '. The deepest frame is the immediate failure location; earlier frames show its callers.'
                     ),
+                )
+            elif index in source_indexes:
+                row.update(
+                    role='source_line',
+                    severity='context',
+                    explanation=f'This is the source statement shown for the traceback frame: `{lines[index].strip()}`.',
                 )
             elif index == exception_index:
                 row.update(role='root_cause', severity='error', explanation=diagnosis['explanation'])
@@ -551,12 +689,24 @@ def explain_local(log_text, level='beginner', language='en'):
             'file_path': row['file_path'],
             'line_number': row['line_number'],
             'function': row['function'],
+            'source_line': row.get('source_line'),
         }
         for row in records if row['file_path'] or row['line_number']
     ]
     error_types = [item['error_type'] for item in diagnoses]
     exception_types = [item['exception_type'] for item in diagnoses if item['exception_type']]
     confidence = min(item['root_cause']['confidence'] for item in diagnoses)
+    primary = diagnoses[-1]
+    for index, item in enumerate(diagnoses):
+        item['is_final_exception'] = index == len(diagnoses) - 1
+        item['is_secondary'] = item.get('preceding_relation') in ('during_handling', 'direct_cause')
+        item['sequence'] = index + 1
+    chained = any(item['is_secondary'] for item in diagnoses)
+    quick_summary = (
+        f"Detected a chained exception with {len(diagnoses)} traceback blocks: "
+        + ' '.join(summaries)
+        if chained else quick_summary
+    )
     base.update({
         'status': 'complete' if complete else 'partial',
         'log_type': 'Python traceback' if len(diagnoses) == 1 else 'Multiple Python tracebacks',
@@ -565,11 +715,17 @@ def explain_local(log_text, level='beginner', language='en'):
         'why': confirmed,
         'classification': (['ERROR'] if has_errors else []) + ([] if complete else ['INCOMPLETE']),
         'error_type': error_types[0] if len(diagnoses) == 1 else 'Multiple Python exceptions',
-        'exception_type': exception_types[0] if len(exception_types) == 1 else None,
+        'exception_type': primary['exception_type'],
+        'primary_exception_type': primary['exception_type'],
         'exception_types': exception_types,
         'severity': 'ERROR' if has_errors else 'UNKNOWN',
         'technologies': ['Python / Django'],
         'identifier': diagnoses[0]['identifier'] if len(diagnoses) == 1 else None,
+        'failing_source_line': primary.get('source_line'),
+        'correct_example': primary.get('corrected_code') if len(diagnoses) == 1 else None,
+        'impact': ' '.join(item['impact'] for item in diagnoses),
+        'why_fix_works': ' '.join(item['why_fix_works'] for item in diagnoses),
+        'prevention': ' '.join(dict.fromkeys(item['prevention'] for item in diagnoses)),
         'line_explanations': records,
         'where': all_locations,
         'root_cause': {
@@ -582,6 +738,23 @@ def explain_local(log_text, level='beginner', language='en'):
         },
         'fix_steps': all_steps,
         'errors': diagnoses,
+        'educational_explanation': {
+            'error_title': primary['error_title'],
+            'error_type': primary['error_type'],
+            'location': primary['where_happened'],
+            'what_happened': quick_summary,
+            'why_happened': confirmed,
+            'traceback_explanation': 'Traceback (most recent call last) lists the calls that were active when the failure happened. Frames are shown from the outer caller to the deepest frame; the final exception line names the failure.',
+            'step_by_step': all_steps,
+            'corrected_code': primary.get('corrected_code') if len(diagnoses) == 1 else None,
+            'why_fix_works': ' '.join(item['why_fix_works'] for item in diagnoses),
+            'prevention': ' '.join(dict.fromkeys(item['prevention'] for item in diagnoses)),
+        },
+        'what_error': primary['what_error'],
+        'why_happened': confirmed,
+        'where_happened': primary['where_happened'],
+        'step_by_step': all_steps,
+        'corrected_code': diagnoses[0]['corrected_code'] if len(diagnoses) == 1 else None,
         'next_steps': [
             'Inspect each final exception line and its deepest application frame.',
             'Apply the suggested fix for each error, then rerun the same input to verify it.',

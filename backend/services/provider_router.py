@@ -15,7 +15,7 @@ class AIProvider:
     """Provider adapter contract shared by analysis and repair."""
     name = 'provider'
 
-    async def analyze_code(self, error_message, traceback, source_code, language):
+    async def analyze_code(self, error_message, traceback, source_code, language, deterministic_diagnosis=None):
         raise NotImplementedError
 
     async def generate_repair(self, source_code, error_message, diagnosis, language, traceback='', request_id=''):
@@ -32,8 +32,10 @@ class AIProvider:
 class GeminiProvider(AIProvider):
     name = 'gemini'
 
-    async def analyze_code(self, error_message, traceback, source_code, language):
-        return await AIService._analyze_with_gemini(error_message, traceback, source_code, language)
+    async def analyze_code(self, error_message, traceback, source_code, language, deterministic_diagnosis=None):
+        return await AIService._analyze_with_gemini(
+            error_message, traceback, source_code, language, deterministic_diagnosis
+        )
 
     async def generate_repair(self, source_code, error_message, diagnosis, language, traceback='', request_id=''):
         return await RepairEngine._repair_with_gemini(source_code, error_message, diagnosis, language, os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY') or '', os.getenv('GEMINI_MODEL', 'gemini-2.5-flash'), traceback, request_id)
@@ -45,8 +47,10 @@ class GeminiProvider(AIProvider):
 class OpenAIProvider(AIProvider):
     name = 'openai'
 
-    async def analyze_code(self, error_message, traceback, source_code, language):
-        return await AIService._analyze_with_openai(error_message, traceback, source_code, language)
+    async def analyze_code(self, error_message, traceback, source_code, language, deterministic_diagnosis=None):
+        return await AIService._analyze_with_openai(
+            error_message, traceback, source_code, language, deterministic_diagnosis
+        )
 
     async def generate_repair(self, source_code, error_message, diagnosis, language, traceback='', request_id=''):
         return await RepairEngine._repair_with_openai(source_code, error_message, diagnosis, language, os.getenv('OPENAI_API_KEY') or '', os.getenv('OPENAI_MODEL', 'gpt-4o'), request_id)
@@ -61,8 +65,9 @@ class OpenAIProvider(AIProvider):
 class LocalRepairProvider(AIProvider):
     name = 'local'
 
-    async def analyze_code(self, error_message, traceback, source_code, language):
-        return {'provider': 'Local Repair Engine', 'source': 'local_analysis', **self.explain_error(source_code, error_message or traceback)}
+    async def analyze_code(self, error_message, traceback, source_code, language, deterministic_diagnosis=None):
+        diagnosis = deterministic_diagnosis or self.explain_error(source_code, error_message or traceback)
+        return {'provider': 'Local Repair Engine', 'source': 'local_analysis', **diagnosis}
 
     async def generate_repair(self, source_code, error_message, diagnosis, language, traceback=''):
         return LocalRepairEngine.generate_repair(source_code, error_message)
@@ -85,18 +90,24 @@ def _mode(preferences):
     return preferences.mode or settings.DEFAULT_LLM_PROVIDER
 
 
-async def analyze(user, error_message, traceback, source_code, language, provider_settings=None):
+async def analyze(user, error_message, traceback, source_code, language, provider_settings=None, deterministic_diagnosis=None):
     prefs = provider_settings or await sync_to_async(settings_for)(user)
     mode = _mode(prefs)
     if mode == 'local':
-        result = await PROVIDERS['local'].analyze_code(error_message, traceback, source_code, language)
+        result = await PROVIDERS['local'].analyze_code(
+            error_message, traceback, source_code, language, deterministic_diagnosis
+        )
         return {'status': 'complete', **result}
     provider = prefs.primary_provider if mode == 'automatic' else mode
     if mode == 'automatic' and not prefs.automatic_fallback:
         provider = prefs.primary_provider
-    result = await _analyze_provider(provider, error_message, traceback, source_code, language)
+    result = await _analyze_provider(
+        provider, error_message, traceback, source_code, language, deterministic_diagnosis
+    )
     if mode == 'automatic' and prefs.automatic_fallback and settings.ENABLE_LLM_FALLBACK and result.get('error') and result.get('error_type') in TRANSIENT:
-        fallback = await _analyze_provider(prefs.secondary_provider, error_message, traceback, source_code, language)
+        fallback = await _analyze_provider(
+            prefs.secondary_provider, error_message, traceback, source_code, language, deterministic_diagnosis
+        )
         if not fallback.get('error'):
             fallback['fallback_from'] = {'provider': provider, 'error_type': result.get('error_type')}
             return fallback
@@ -105,15 +116,19 @@ async def analyze(user, error_message, traceback, source_code, language, provide
     return result
 
 
-async def _analyze_provider(provider, error_message, traceback, source_code, language):
+async def _analyze_provider(provider, error_message, traceback, source_code, language, deterministic_diagnosis=None):
     if provider == 'gemini' and not (os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')):
         return {'error': 'Gemini API key is not configured on the backend.', 'error_type': 'missing_api_key', 'provider': 'Gemini', 'status': 'failed'}
     if provider == 'openai' and not os.getenv('OPENAI_API_KEY'):
         return {'error': 'OpenAI API key is not configured on the backend.', 'error_type': 'missing_api_key', 'provider': 'OpenAI', 'status': 'failed'}
     if provider == 'gemini':
-        result = await PROVIDERS['gemini'].analyze_code(error_message, traceback, source_code, language)
+        result = await PROVIDERS['gemini'].analyze_code(
+            error_message, traceback, source_code, language, deterministic_diagnosis
+        )
     elif provider == 'openai':
-        result = await PROVIDERS['openai'].analyze_code(error_message, traceback, source_code, language)
+        result = await PROVIDERS['openai'].analyze_code(
+            error_message, traceback, source_code, language, deterministic_diagnosis
+        )
     else:
         return {'error': 'Unknown provider selection.', 'error_type': 'invalid_provider', 'provider': provider}
     result.setdefault('provider', provider)
