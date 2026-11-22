@@ -43,6 +43,84 @@ function setEditorCode(code) {
     if (fallback) fallback.value = window.bugSenseWorkspaceCode;
 }
 
+// --- Programming language detection (mirrors the backend detector) ---
+const LANGUAGE_LABELS = { python: 'Python', java: 'Java', c: 'C', cpp: 'C++', javascript: 'JavaScript' };
+const SUPPORTED_LANGUAGES = ['python', 'java', 'c', 'cpp', 'javascript'];
+const LANGUAGE_EXTENSIONS = { py: 'python', java: 'java', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hxx: 'cpp', js: 'javascript', mjs: 'javascript' };
+const LANGUAGE_PATTERNS = {
+    python: [/^\s*def\s+\w+\s*\(/m, /^\s*class\s+\w+\s*[\(:]/m, /^\s*import\s+\w+/m, /^\s*from\s+\w+\s+import\s+/m, /^\s*print\s*\(/m, /__name__\s*==\s*['"]__main__['"]/, /^\s*elif\s+/m],
+    java: [/^\s*public\s+class\s+\w+/m, /^\s*import\s+java\./m, /^\s*package\s+[\w.]+;/m, /public\s+static\s+void\s+main\s*\(/, /System\.out\.println/, /^\s*(public|private|protected)\s+(static\s+)?(final\s+)?\w[\w<>\[\]]*\s+\w+\s*\(/m],
+    c: [/#include\s*<stdio\.h>/, /#include\s*<stdlib\.h>/, /#include\s*<string\.h>/, /#include\s*<unistd\.h>/, /printf\s*\(/, /scanf\s*\(/, /^\s*int\s+main\s*\(/m, /^\s*typedef\s+struct\s+/m],
+    cpp: [/#include\s*<iostream>/, /#include\s*<vector>/, /#include\s*<string>/, /#include\s*<map>/, /std::cout/, /std::cin/, /std::endl/, /using\s+namespace\s+std\s*;/, /^\s*template\s*</m],
+    javascript: [/console\.log\s*\(/, /^\s*const\s+\w+\s*=/m, /^\s*let\s+\w+\s*=/m, /^\s*var\s+\w+\s*=/m, /^\s*function\s+\w+\s*\(/m, /\brequire\s*\(/, /^\s*export\s+(default\s+)?(class|function|const|let)\s+/m, /\bdocument\./, /\bwindow\./],
+};
+
+function detectLanguage(code, filename) {
+    const text = String(code ?? '');
+    if (!text.trim() && !filename) return { language: null, detected: null, confidence: 0, confident: false };
+    const scores = { python: 0, java: 0, c: 0, cpp: 0, javascript: 0 };
+    if (filename) {
+        const ext = String(filename).toLowerCase().split('.').pop();
+        const mapped = LANGUAGE_EXTENSIONS[ext];
+        if (mapped) scores[mapped] += 1.5;
+    }
+    Object.entries(LANGUAGE_PATTERNS).forEach(([lang, patterns]) => {
+        patterns.forEach((re) => { if (re.test(text)) scores[lang] += 1; });
+    });
+    const cppHeaders = /#include\s*<(iostream|vector|string|map|set|algorithm|memory|fstream)>/.test(text);
+    const cHeaders = /#include\s*<(stdio|stdlib|string|unistd|math|time)\.h>/.test(text);
+    if (cppHeaders && !cHeaders) scores.cpp += 2;
+    else if (cHeaders && !cppHeaders) scores.c += 1.5;
+
+    const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+    const [topLang, topScore] = ranked[0];
+    const secondScore = ranked[1] ? ranked[1][1] : 0;
+    if (topScore < 2) return { language: null, detected: null, confidence: 0, confident: false };
+    const total = Object.values(scores).reduce((a, b) => a + b, 0) || 1;
+    const confidence = Math.min(1, (topScore / total) * (1 + (topScore - secondScore) / Math.max(topScore, 1)));
+    const confident = confidence >= 0.6 && (topScore - secondScore) >= 1;
+    return { language: confident ? topLang : null, detected: topLang, confidence, confident };
+}
+
+function getLanguageSelection() {
+    return document.getElementById('language')?.value || 'auto';
+}
+
+// Resolve the language to send to the backend. A confident detection always
+// wins over the selector, so pasted Java is never sent as Python.
+function resolveLanguage(code, filename) {
+    const detection = detectLanguage(code, filename);
+    const selected = getLanguageSelection();
+    let language;
+    if (detection.confident && detection.language) language = detection.language;
+    else if (selected !== 'auto' && SUPPORTED_LANGUAGES.includes(selected)) language = selected;
+    else language = detection.detected || 'python';
+    return { language, detection };
+}
+
+function applyEditorLanguage(language) {
+    if (!language || !SUPPORTED_LANGUAGES.includes(language)) return;
+    const model = window.monacoEditor?.getModel();
+    if (model && window.monaco?.editor) window.monaco.editor.setModelLanguage(model, language);
+}
+
+// Reflect a confident detection in the selector and the on-screen badge.
+function syncLanguageSelector(code, filename) {
+    const detection = detectLanguage(code, filename);
+    const select = document.getElementById('language');
+    if (select && detection.confident && detection.language && select.value !== detection.language) {
+        select.value = detection.language;
+        applyEditorLanguage(detection.language);
+    }
+    const badge = document.getElementById('detected-language');
+    if (badge) {
+        badge.textContent = detection.confident && detection.language
+            ? `Detected: ${LANGUAGE_LABELS[detection.language] || detection.language}`
+            : 'Language: auto-detect';
+    }
+    return detection;
+}
+
 // One AMD strategy is used consistently: the Monaco 0.45 AMD loader and its matching editor modules.
 function loadMonacoEditor() {
     const container = document.getElementById('monaco-editor-container');
@@ -104,10 +182,10 @@ function initializeMonaco() {
         // Ensure container has dimensions
         container.style.height = '400px';
         container.style.width = '100%';
-        
+        container.innerHTML = '';
         window.monacoEditor = window.monaco.editor.create(container, {
             value: ensureWorkspaceCode(),
-            language: document.getElementById('language')?.value || 'python',
+            language: detectLanguage(ensureWorkspaceCode()).detected || 'python',
             theme: 'vs-dark',
             automaticLayout: true,
             minimap: { enabled: false },
@@ -118,6 +196,7 @@ function initializeMonaco() {
         });
         window.bugSenseEditorChangeSubscription = window.monacoEditor.onDidChangeModelContent(() => {
             window.bugSenseWorkspaceCode = window.monacoEditor?.getValue() || '';
+            syncLanguageSelector(window.bugSenseWorkspaceCode);
         });
         window.monacoEditor.onDidChangeModelLanguage?.(() => window.monacoEditor?.layout());
         window.monacoResizeObserver?.disconnect();
@@ -152,10 +231,10 @@ function showTextareaFallback(error) {
     const container = document.getElementById('monaco-editor-container');
     if (!container) return;
     disposeMonacoEditor();
-    container.innerHTML = `<label class="editor-fallback-label" for="workspace-code-fallback">Plain text editor · Monaco could not load (${escapeHTML(error?.message || 'network error')})</label><textarea id="workspace-code-fallback" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Python source code"></textarea>`;
+    container.innerHTML = `<label class="editor-fallback-label" for="workspace-code-fallback">Plain text editor · Monaco could not load (${escapeHTML(error?.message || 'network error')})</label><textarea id="workspace-code-fallback" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Source code"></textarea>`;
     const fallback = document.getElementById('workspace-code-fallback');
     fallback.value = ensureWorkspaceCode();
-    fallback.addEventListener('input', () => { window.bugSenseWorkspaceCode = fallback.value; });
+    fallback.addEventListener('input', () => { window.bugSenseWorkspaceCode = fallback.value; syncLanguageSelector(fallback.value); });
 }
 
 // Router
@@ -579,9 +658,17 @@ function renderWorkspace() {
                     <span class="session-title" id="workspace-session-title">${currentSessionId ? `Session #${escapeHTML(currentSessionId)}` : 'New session'}</span>
                     <span id="ai-provider-status" class="provider-status">Checking AI provider…</span>
                     <label class="text-secondary">AI Provider <select id="ai-provider-select" aria-label="AI Provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="local">Local Repair Engine</option><option value="automatic">Automatic Fallback</option></select></label>
-                    <select id="language" style="width: auto;">
-                        <option value="python">Python</option>
-                    </select>
+                    <label class="text-secondary">Language
+                        <select id="language" style="width: auto;" aria-label="Programming language">
+                            <option value="auto">Auto-detect</option>
+                            <option value="python">Python</option>
+                            <option value="java">Java</option>
+                            <option value="c">C</option>
+                            <option value="cpp">C++</option>
+                            <option value="javascript">JavaScript</option>
+                        </select>
+                    </label>
+                    <span id="detected-language" class="text-secondary" style="font-size: 12px;">Language: auto-detect</span>
                 </div>
             </div>
             <div class="content-area" style="padding: 16px;">
@@ -661,7 +748,7 @@ function renderWorkspace() {
                                 </button>
                             </div>
                         </div>
-                        <div id="monaco-editor-container"></div>
+                        <div id="monaco-editor-container"><div class="editor-loading" style="display:flex;align-items:center;justify-content:center;height:400px;color:#94a3b8;font-size:13px;">Loading editor…</div></div>
                         <div class="terminal-panel">
                             <div class="terminal-tabs">
                                 <button class="terminal-tab active" data-tab="output" onclick="switchTerminalTab('output')">Output</button>
@@ -761,9 +848,15 @@ function renderWorkspace() {
         showTextareaFallback(error);
     });
     document.getElementById('language')?.addEventListener('change', (event) => {
-        const model = window.monacoEditor?.getModel();
-        if (model && window.monaco?.editor) window.monaco.editor.setModelLanguage(model, event.target.value);
+        const badge = document.getElementById('detected-language');
+        if (event.target.value === 'auto') {
+            syncLanguageSelector(getEditorCode());
+            return;
+        }
+        applyEditorLanguage(event.target.value);
+        if (badge) badge.textContent = `Language: ${LANGUAGE_LABELS[event.target.value] || event.target.value}`;
     });
+    syncLanguageSelector(ensureWorkspaceCode());
     
     updateActiveNavItem();
 }
@@ -836,7 +929,7 @@ async function loadWorkspaceProjects(selectId = '') {
     select.onchange = async () => { activeProjectFiles = []; activeProjectFilePath = ''; document.getElementById('active-file-tab').textContent = 'Unsaved buffer'; document.getElementById('new-project-file-btn').disabled = !select.value; document.getElementById('save-project-file-btn').disabled = !select.value; localStorage.setItem('bugsense-project-id', select.value); if (select.value) await openWorkspaceProject(select.value); else renderWorkspaceFileTree(); };
     document.getElementById('new-project-btn').onclick = async () => {
         const name = window.prompt('Project name'); if (!name?.trim()) return;
-        try { const project = await window.api.createProject({ name: name.trim(), source_type: 'paste', language: document.getElementById('language')?.value || 'python' }); localStorage.setItem('bugsense-project-id', project.id); await loadWorkspaceProjects(project.id); }
+        try { const project = await window.api.createProject({ name: name.trim(), source_type: 'paste', language: resolveLanguage(getEditorCode()).language }); localStorage.setItem('bugsense-project-id', project.id); await loadWorkspaceProjects(project.id); }
         catch (error) { const msg = document.getElementById('project-file-message'); if (msg) msg.textContent = error.message; }
     };
     
@@ -854,7 +947,7 @@ async function loadWorkspaceProjects(selectId = '') {
             const project = await window.api.createProject({ 
                 name: projectName.trim(), 
                 source_type: 'upload', 
-                language: 'python' 
+                language: detectLanguage(content, file.name).detected || 'python'
             });
             await window.api.saveProjectFile(project.id, file.name, content);
             localStorage.setItem('bugsense-project-id', project.id);
@@ -1291,7 +1384,8 @@ function clearLogs() {
 // Run Code
 async function runCode() {
     const code = getEditorCode();
-    const language = document.getElementById('language').value;
+    const { language } = resolveLanguage(code);
+    syncLanguageSelector(code);
     const terminalOutput = document.getElementById('terminal-output');
     const runBtn = document.getElementById('run-code-btn');
 
@@ -1360,6 +1454,8 @@ async function runCode() {
 // Analyze Code
 async function analyzeCode() {
     const code = getEditorCode();
+    const { language } = resolveLanguage(code);
+    syncLanguageSelector(code);
     const terminalOutput = document.getElementById('terminal-output');
     const analyzeBtn = document.getElementById('analyze-btn');
     const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
@@ -1379,7 +1475,7 @@ async function analyzeCode() {
         try {
             const execResult = await window.api.executeCode({
                 source_code: code,
-                language: 'python',
+                language: language,
                 session_id: currentSessionId,
             });
             setCurrentSessionId(execResult.session_id || currentSessionId);
@@ -1396,13 +1492,20 @@ async function analyzeCode() {
             source_code: code,
             error_message: actualError || 'No error message',
             terminal_logs: trace,
-            language: 'python',
+            language: language,
             session_id: currentSessionId,
             allow_external_ai: document.getElementById('ai-share-consent')?.checked === true,
         });
 
         analysisResult = result;
         setCurrentSessionId(result.session_id || currentSessionId);
+        if (result.language && SUPPORTED_LANGUAGES.includes(result.language)) {
+            const select = document.getElementById('language');
+            if (select && select.value !== result.language) { select.value = result.language; applyEditorLanguage(result.language); }
+            const badge = document.getElementById('detected-language');
+            if (badge) badge.textContent = `Detected: ${LANGUAGE_LABELS[result.language] || result.language}`;
+        }
+        const detectedLanguageLabel = result.language ? (LANGUAGE_LABELS[result.language] || result.language) : 'Unknown';
         const aiResult = result.ai_analysis || {};
         const staticResult = result.static_analysis || {};
         const runtimeDiagnosis = result.runtime_diagnosis || {};
@@ -1427,6 +1530,7 @@ async function analyzeCode() {
         
         aiDiagnosisContent.innerHTML = `
             <div class="diagnosis-item"><div class="diagnosis-label">AI Provider</div><div class="diagnosis-value ai">${escapeHTML(aiResult.provider || 'Static Only')}${aiResult.model ? ` (${escapeHTML(aiResult.model)})` : ''}</div></div>
+            <div class="diagnosis-item"><div class="diagnosis-label">Detected Language</div><div class="diagnosis-value">${escapeHTML(detectedLanguageLabel)}</div></div>
             ${aiResult.error || aiResult.status === 'consent_required' ? `<div class="diagnosis-item"><div class="diagnosis-label">AI Analysis Status</div><div class="diagnosis-value ${aiResult.error ? 'text-error' : 'text-warning'}">${escapeHTML(aiResult.error || aiResult.message || aiResult.status)}${aiResult.error_type ? ` · ${escapeHTML(aiResult.error_type)}` : ''}</div></div>` : ''}
             ${effectiveDiagnosis.detection_source === 'ai_unverified' ? '<div class="diagnosis-item"><div class="diagnosis-label">Evidence Status</div><div class="diagnosis-value text-warning">AI-only hypothesis · verify against the source and runtime logs</div></div>' : ''}
             ${effectiveDiagnosis.error_title ? `<div class="diagnosis-item"><div class="diagnosis-label">Error Title</div><div class="diagnosis-value">${escapeHTML(effectiveDiagnosis.error_title)}</div></div>` : ''}
@@ -1504,6 +1608,8 @@ async function analyzeCode() {
 // Repair Code
 async function repairCode() {
     const code = getEditorCode();
+    const { language } = resolveLanguage(code);
+    syncLanguageSelector(code);
     const terminalOutput = document.getElementById('terminal-output');
     const repairBtn = document.getElementById('repair-btn');
     const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
@@ -1524,7 +1630,7 @@ async function repairCode() {
         try {
             const execResult = await window.api.executeCode({
                 source_code: code,
-                language: 'python',
+                language: language,
                 session_id: currentSessionId,
             });
             setCurrentSessionId(execResult.session_id || currentSessionId);
@@ -1569,7 +1675,7 @@ async function repairCode() {
             error_message: actualError || 'No error message',
             traceback: actualError,
             diagnosis: analysisResult?.educational_diagnosis || analysisResult?.runtime_diagnosis || analysisResult?.ai_analysis || {},
-            language: 'python',
+            language: language,
             session_id: currentSessionId,
             allow_external_ai: document.getElementById('ai-share-consent')?.checked === true,
         });
@@ -1643,6 +1749,8 @@ async function repairCode() {
 // Repair with Heuristic (Quick Fix)
 async function repairWithHeuristic() {
     const code = getEditorCode();
+    const { language } = resolveLanguage(code);
+    syncLanguageSelector(code);
     const terminalOutput = document.getElementById('terminal-output');
     const aiDiagnosisContent = document.getElementById('ai-diagnosis-content');
     const heuristicBtn = document.getElementById('heuristic-repair-btn');
@@ -1751,7 +1859,7 @@ async function repairWithHeuristic() {
         try {
             const execResult = await window.api.executeCode({
                 source_code: code,
-                language: 'python',
+                language: language,
                 session_id: currentSessionId,
             });
             setCurrentSessionId(execResult.session_id || currentSessionId);
@@ -1800,7 +1908,7 @@ async function repairWithHeuristic() {
         const result = await window.api.repairWithHeuristic({
             source_code: code,
             error_message: actualError || 'No error message',
-            language: 'python',
+            language: language,
         });
 
         window.pendingRepair = result;
@@ -1949,7 +2057,8 @@ function rejectProjectRepair() {
 // Verify Code
 async function verifyCode() {
     const code = getEditorCode();
-    const language = document.getElementById('language').value;
+    const { language } = resolveLanguage(code);
+    syncLanguageSelector(code);
     const terminalOutput = document.getElementById('terminal-output');
     const verifyBtn = document.getElementById('verify-btn');
 
@@ -2019,13 +2128,49 @@ async function openSession(sessionId) {
     }
 }
 
-// Initialize
-window.addEventListener('load', () => {
-    handleRoute();
-});
+// Global safety net: never leave the user staring at a blank screen.
+function showBootError(error) {
+    const app = document.getElementById('app');
+    if (!app || app.innerHTML.trim()) return;
+    const message = escapeHTML(error?.message || String(error || 'Unknown error'));
+    app.innerHTML = `
+        <div class="empty-content" style="padding: 40px; text-align: center;">
+            <h2>BugSense AI could not finish loading</h2>
+            <p style="margin: 12px 0;">${message}</p>
+            <button class="primary" onclick="window.location.reload()">Reload</button>
+        </div>
+    `;
+}
+
+window.addEventListener('error', (event) => showBootError(event.error || event.message));
+
+window.addEventListener('unhandledrejection', (event) => showBootError(event.reason));
+
+// Initialize on DOMContentLoaded so the shell paints before images/fonts/Monaco.
+function bootBugSense() {
+    try {
+        handleRoute();
+    } catch (error) {
+        showBootError(error);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootBugSense);
+} else {
+    bootBugSense();
+}
 
 window.addEventListener('hashchange', () => {
     handleRoute();
+});
+
+// Surface backend warm-up progress (Render cold start) without a blank screen.
+window.addEventListener('bugsense-warmup', (event) => {
+    const message = event.detail?.message;
+    if (!message) return;
+    const terminal = document.getElementById('terminal-output');
+    if (terminal) terminal.textContent = message;
 });
 
 window.addEventListener('keydown', (event) => {

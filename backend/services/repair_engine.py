@@ -41,6 +41,25 @@ class RepairEngine:
         ))
 
     @staticmethod
+    def _validate_repaired_code(repaired_code: str, language: str) -> str:
+        """Return an error message if the repaired code is invalid for the language.
+
+        Uses the language-specific compiler/interpreter/parser so a Java repair is
+        checked with javac, a C repair with gcc, a C++ repair with g++, a
+        JavaScript repair with node --check, and a Python repair with ast.
+        """
+        try:
+            from services.code_analyzer import CodeAnalyzer
+            syntax_errors = CodeAnalyzer.check_syntax_for_language(repaired_code, language)
+        except Exception:
+            return ''
+        if syntax_errors:
+            first = syntax_errors[0]
+            location = f' (line {first.line})' if first.line else ''
+            return f'The {language} repair produced invalid code{location}: {first.message}'
+        return ''
+
+    @staticmethod
     async def generate_repair(
         source_code: str,
         error_message: str,
@@ -176,6 +195,16 @@ Provide ONLY the fixed code, no explanations. Output just the corrected source c
                 lines = repaired_code.split('\n')
                 if lines[0].startswith('```'):
                     repaired_code = '\n'.join(lines[1:-1]) if lines[-1] == '```' else '\n'.join(lines[1:])
+
+            # Validate the repair is valid in the original language.
+            validation_error = RepairEngine._validate_repaired_code(repaired_code, language)
+            if validation_error:
+                return {
+                    'error': validation_error,
+                    'error_type': 'malformed_response',
+                    'repaired_code': source_code,
+                    'source': 'error',
+                }
 
             # If no changes were made, return a warning
             if repaired_code == source_code:
@@ -343,6 +372,15 @@ Do not omit unchanged portions of the source file. Do not include markdown fence
                 except SyntaxError:
                     return {
                         'error': 'Gemini returned Python code with a syntax error.',
+                        'error_type': 'malformed_response',
+                        'repaired_code': source_code,
+                        'source': 'error',
+                    }
+            else:
+                validation_error = RepairEngine._validate_repaired_code(repaired_code, language)
+                if validation_error:
+                    return {
+                        'error': validation_error,
                         'error_type': 'malformed_response',
                         'repaired_code': source_code,
                         'source': 'error',

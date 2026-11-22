@@ -7,9 +7,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from apps.dashboard.models import DebuggingSession, RepairAttempt, VerificationRun
+from services.language_detector import LanguageDetector
 from services.verification_engine import VerificationEngine
 
 logger = logging.getLogger(__name__)
+
+SUPPORTED_LANGUAGES = ('python', 'java', 'c', 'cpp', 'javascript')
 
 
 @api_view(['POST'])
@@ -18,15 +21,26 @@ def verify_repair(request):
     data = request.data
     original_code = data.get('original_code', '')
     repaired_code = data.get('repaired_code', '')
-    language = data.get('language', 'python')
+    selected_language = data.get('language', '') or ''
+    filename = data.get('filename')
     if not isinstance(repaired_code, str) or not repaired_code.strip():
         return Response({'error': 'repaired_code is required'}, status=status.HTTP_400_BAD_REQUEST)
-    if language != 'python':
-        return Response({'error': 'Only Python verification is currently supported.'}, status=status.HTTP_400_BAD_REQUEST)
     if len(repaired_code) > 200_000:
         return Response({'error': 'source exceeds the 200 KB verification limit'}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
+    # Detect from the repaired source; confident detection wins over selection.
+    detection = LanguageDetector.detect(repaired_code, filename=filename)
+    if detection.confident and detection.language in SUPPORTED_LANGUAGES:
+        language = detection.language
+    elif selected_language in SUPPORTED_LANGUAGES:
+        language = selected_language
+    else:
+        language = detection.language if detection.language in SUPPORTED_LANGUAGES else 'python'
+
     try:
         result = asyncio.run(VerificationEngine.verify_repair(original_code, repaired_code, language))
+        result.setdefault('language', language)
+        result['language_detection'] = detection.to_dict()
         attempt = None
         attempt_id = data.get('attempt_id')
         if attempt_id:

@@ -1,13 +1,18 @@
 """
-Code Analyzer - Static analysis using Python AST and Ruff.
+Code Analyzer - Static analysis using language-specific tools.
+
+Supports Python (ast + ruff), Java/C/C++ (compiler diagnostics captured via the
+sandbox runners), and JavaScript (node --check). Dispatches by detected language
+so Java/C/C++/JS source is never sent to the Python parser.
 """
 import ast
 import builtins
 import json
 import re
-import symtable
+import shutil
 import subprocess
-from typing import List
+import symtable
+from typing import List, Optional
 from dataclasses import dataclass
 
 
@@ -86,8 +91,127 @@ class CodeAnalyzer:
         return sorted(undefined)
 
     @staticmethod
-    def analyze_error_context(code: str, error_message: str) -> dict:
-        """Build a deterministic, source-aware diagnosis before optional AI."""
+    def run_ruff(code: str) -> List[LintIssue]:
+        """Run Ruff linter on code if available."""
+        issues = []
+        try:
+            result = subprocess.run(
+                ['ruff', 'check', '--format', 'json', '-'],
+                input=code,
+                capture_output=True,
+                text=True,
+                timeout=3,
+                encoding='utf-8',
+                errors='replace'
+            )
+
+            if result.stdout:
+                ruff_output = json.loads(result.stdout)
+                for item in ruff_output:
+                    issues.append(LintIssue(
+                        code=item.get('code', 'UNK'),
+                        message=item.get('message', ''),
+                        line=item.get('location', {}).get('row', 0),
+                        column=item.get('location', {}).get('column', 0),
+                        severity='error' if item.get('fix', {}).get('applicability') == 'unsafe' else 'warning'
+                    ))
+        except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+            pass
+
+        return issues
+
+    # ------------------------------------------------------------------
+    # Multi-language analysis
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def check_syntax_for_language(code: str, language: str) -> List[SyntaxErrorInfo]:
+        """Run the language-appropriate syntax/compiler check."""
+        if language == 'python':
+            return CodeAnalyzer.check_syntax(code)
+        if language == 'javascript':
+            return CodeAnalyzer._check_javascript_syntax(code)
+        if language == 'java':
+            return CodeAnalyzer._check_compiled_language(code, 'java')
+        if language == 'c':
+            return CodeAnalyzer._check_compiled_language(code, 'c')
+        if language == 'cpp':
+            return CodeAnalyzer._check_compiled_language(code, 'cpp')
+        return []
+
+    @staticmethod
+    def _check_javascript_syntax(code: str) -> List[SyntaxErrorInfo]:
+        node = shutil.which('node')
+        if not node:
+            return []
+        try:
+            result = subprocess.run(
+                [node, '--check', '-'],
+                input=code,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return []
+        errors = []
+        if result.returncode != 0 and result.stderr:
+            # node --check output: file:line:col\nSyntaxError: message
+            for line in result.stderr.splitlines():
+                m = re.search(r':(\d+)(?::(\d+))?\s*$', line)
+                if m:
+                    line_no = int(m.group(1))
+                    col = int(m.group(2)) if m.group(2) else 0
+                    errors.append(SyntaxErrorInfo(line=line_no, column=col, message=line.strip()))
+                    break
+            if not errors:
+                errors.append(SyntaxErrorInfo(line=0, column=0, message=result.stderr.strip().splitlines()[-1] if result.stderr.strip() else 'Syntax error'))
+        return errors
+
+    @staticmethod
+    def _check_compiled_language(code: str, language: str) -> List[SyntaxErrorInfo]:
+        """Compile the source and parse compiler error lines."""
+        from sandbox.runners import get_runner
+        runner = get_runner(language)
+        if runner is None:
+            return []
+        try:
+            exit_code, _stdout, stderr, _duration = runner.execute(code, timeout=10)
+        except Exception:
+            return []
+        errors = []
+        if exit_code != 0 and stderr:
+            # gcc/g++/javac: file:line:col: error: message  OR  file:line: error: message
+            for line in stderr.splitlines():
+                m = re.search(r'[:.](\d+)(?::(\d+))?:\s*(?:error|fatal error|warning):\s*(.+)$', line)
+                if m:
+                    errors.append(SyntaxErrorInfo(
+                        line=int(m.group(1)),
+                        column=int(m.group(2)) if m.group(2) else 0,
+                        message=m.group(3).strip(),
+                    ))
+                if len(errors) >= 10:
+                    break
+        return errors
+
+    @staticmethod
+    def analyze_error_context(code: str, error_message: str, language: str = 'python') -> dict:
+        """Build a deterministic, source-aware diagnosis for the given language.
+
+        Dispatches to the language-specific handler so Java/C/C++/JS source is
+        never sent to the Python parser.
+        """
+        if language == 'python':
+            return CodeAnalyzer._analyze_python(code, error_message)
+        if language == 'javascript':
+            return CodeAnalyzer._analyze_javascript(code, error_message)
+        if language in ('java', 'c', 'cpp'):
+            return CodeAnalyzer._analyze_compiled(code, error_message, language)
+        return CodeAnalyzer._analyze_unknown(code, error_message, language)
+
+    @staticmethod
+    def _analyze_python(code: str, error_message: str) -> dict:
+        """Existing Python diagnosis, kept verbatim."""
         from services.error_parser import ErrorParser
         from services.log_sense import explain_local
 
@@ -201,37 +325,140 @@ class CodeAnalyzer:
             'confidence': confidence,
             'detection_source': 'deterministic',
             'educational_explanation': local.get('educational_explanation'),
+            'programming_language': 'python',
         }
         if error_category == 'NameError':
             diagnosis['undefined_variable'] = local.get('identifier')
         return diagnosis
 
     @staticmethod
-    def run_ruff(code: str) -> List[LintIssue]:
-        """Run Ruff linter on code if available."""
-        issues = []
-        try:
-            result = subprocess.run(
-                ['ruff', 'check', '--format', 'json', '-'],
-                input=code,
-                capture_output=True,
-                text=True,
-                timeout=3,
-                encoding='utf-8',
-                errors='replace'
-            )
+    def _analyze_javascript(code: str, error_message: str) -> dict:
+        error_text = error_message or ''
+        syntax_errors = CodeAnalyzer._check_javascript_syntax(code)
+        if not error_text.strip() or error_text.strip().lower() == 'no error message':
+            if syntax_errors:
+                error_text = syntax_errors[0].message
+            else:
+                return CodeAnalyzer._no_error_diagnosis('javascript')
 
-            if result.stdout:
-                ruff_output = json.loads(result.stdout)
-                for item in ruff_output:
-                    issues.append(LintIssue(
-                        code=item.get('code', 'UNK'),
-                        message=item.get('message', ''),
-                        line=item.get('location', {}).get('row', 0),
-                        column=item.get('location', {}).get('column', 0),
-                        severity='error' if item.get('fix', {}).get('applicability') == 'unsafe' else 'warning'
-                    ))
-        except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
-            pass
+        exception_type, exception_message = CodeAnalyzer._parse_js_error(error_text)
+        line = CodeAnalyzer._extract_js_line(error_text) or (syntax_errors[0].line if syntax_errors else None)
+        source_line = None
+        if line and 1 <= line <= len(code.splitlines()):
+            source_line = code.splitlines()[line - 1]
 
-        return issues
+        category = exception_type or ('SyntaxError' if syntax_errors else 'JavaScriptError')
+        return {
+            'error_category': category,
+            'exception_type': exception_type,
+            'exception_message': exception_message,
+            'programming_language': 'javascript',
+            'summary': f'{category}: {exception_message}' if exception_message else category,
+            'affected_file': None,
+            'affected_line': line,
+            'function_name': None,
+            'failing_source_line': source_line,
+            'possible_causes': [exception_message] if exception_message else [],
+            'confirmed_findings': f'{category} raised at line {line}' if line else category,
+            'root_cause': exception_message,
+            'likely_root_cause': exception_message,
+            'impact': 'The JavaScript program stopped at the failing statement.',
+            'fix_steps': [f'Inspect line {line} and correct the {category}.' if line else f'Correct the {category}.'],
+            'suggested_fix': None,
+            'suggested_code': None,
+            'why_fix_works': 'Fixing the reported statement allows the JavaScript engine to continue execution.',
+            'prevention': 'Run node --check before executing, and validate variable/property access.',
+            'frames': [],
+            'secondary_errors': [],
+            'confidence': 85,
+            'detection_source': 'deterministic',
+            'educational_explanation': None,
+        }
+
+    @staticmethod
+    def _analyze_compiled(code: str, error_message: str, language: str) -> dict:
+        error_text = error_message or ''
+        syntax_errors = CodeAnalyzer._check_compiled_language(code, language)
+        if not error_text.strip() or error_text.strip().lower() == 'no error message':
+            if syntax_errors:
+                error_text = syntax_errors[0].message
+            else:
+                return CodeAnalyzer._no_error_diagnosis(language)
+
+        first = syntax_errors[0] if syntax_errors else None
+        line = first.line if first else None
+        source_line = None
+        if line and 1 <= line <= len(code.splitlines()):
+            source_line = code.splitlines()[line - 1]
+
+        lang_label = {'java': 'Java', 'c': 'C', 'cpp': 'C++'}.get(language, language)
+        category = f'{lang_label} Compilation Error' if syntax_errors else f'{lang_label} Runtime Error'
+        return {
+            'error_category': category,
+            'exception_type': category,
+            'exception_message': first.message if first else error_text.strip().splitlines()[-1] if error_text.strip() else '',
+            'programming_language': language,
+            'summary': f'{category}: {first.message}' if first else category,
+            'affected_file': None,
+            'affected_line': line,
+            'function_name': None,
+            'failing_source_line': source_line,
+            'possible_causes': [e.message for e in syntax_errors] if syntax_errors else [error_text.strip()],
+            'confirmed_findings': f'{lang_label} compiler reported an error at line {line}' if line else category,
+            'root_cause': first.message if first else error_text.strip(),
+            'likely_root_cause': first.message if first else error_text.strip(),
+            'impact': f'The {lang_label} program could not be compiled/executed.',
+            'fix_steps': [f'Review the compiler error at line {line} and fix the reported issue.' if line else 'Review the compiler errors and fix the reported issues.'],
+            'suggested_fix': None,
+            'suggested_code': None,
+            'why_fix_works': f'Correcting the reported error lets the {lang_label} compiler produce a valid binary.',
+            'prevention': f'Compile frequently and address warnings; use a {lang_label} linter in your editor.',
+            'frames': [],
+            'secondary_errors': [],
+            'confidence': 85,
+            'detection_source': 'deterministic',
+            'educational_explanation': None,
+        }
+
+    @staticmethod
+    def _no_error_diagnosis(language: str) -> dict:
+        return {
+            'error_category': 'Unknown',
+            'programming_language': language,
+            'summary': 'No runtime error was supplied; review the static findings below.',
+            'possible_causes': [],
+            'confidence': 0,
+            'detection_source': 'static_only',
+        }
+
+    @staticmethod
+    def _analyze_unknown(code: str, error_message: str, language: str) -> dict:
+        """Fallback diagnosis for a language without a dedicated handler."""
+        error_text = (error_message or '').strip()
+        return {
+            'error_category': 'Unknown',
+            'programming_language': language,
+            'summary': error_text or 'No specific error could be identified for this language.',
+            'possible_causes': [error_text] if error_text else [],
+            'confidence': 0,
+            'detection_source': 'static_only',
+        }
+
+    @staticmethod
+    def _parse_js_error(text: str) -> tuple:
+        # ReferenceError: x is not defined\n    at ...
+        m = re.search(r'^(?:\w+\.)?([A-Z][A-Za-z0-9_]*Error):\s*(.+)$', text, re.MULTILINE)
+        if m:
+            return m.group(1), m.group(2).strip()
+        return None, text.strip().splitlines()[-1] if text.strip() else ''
+
+    @staticmethod
+    def _extract_js_line(text: str) -> Optional[int]:
+        # at function (file.js:12:34)  or  file.js:12
+        m = re.search(r':(\d+)(?::\d+)?\)?\s*$', text, re.MULTILINE)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                return None
+        return None

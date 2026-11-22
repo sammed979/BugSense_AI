@@ -18,7 +18,11 @@ from apps.dashboard.models import AnalysisResult, DebuggingSession
 from services.ai_service import AIService
 from services.code_analyzer import CodeAnalyzer
 from services.error_parser import ErrorParser
+from services.language_detector import LanguageDetector
 from sandbox.python_runner import PythonRunner
+from sandbox.runners import get_runner
+
+SUPPORTED_LANGUAGES = ('python', 'java', 'c', 'cpp', 'javascript')
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -113,17 +117,25 @@ def create_analysis(request):
     """Return static findings even when optional external AI is unavailable."""
     data = request.data
     source_code = data.get('source_code', '')
-    language = data.get('language', 'python')
+    language = data.get('language', '') or ''
     error_message = data.get('error_message', '')
     terminal_logs = data.get('terminal_logs', '')
     allow_external_ai = data.get('allow_external_ai') is True
+    filename = data.get('filename')
 
     if not isinstance(source_code, str) or not source_code.strip():
         return Response({'error': 'source_code is required'}, status=status.HTTP_400_BAD_REQUEST)
     if len(source_code) > 200_000:
         return Response({'error': 'source_code exceeds the 200 KB analysis limit'}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
-    if language not in ('python',):
-        return Response({'error': 'Only Python analysis is currently supported'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Automatic language detection. If the client did not pass a language, or
+    # passed an unsupported one, detect from the source code. A confident
+    # detection always wins over the selection.
+    detection = LanguageDetector.detect(source_code, filename=filename)
+    if detection.confident and detection.language in SUPPORTED_LANGUAGES:
+        language = detection.language
+    elif language not in SUPPORTED_LANGUAGES:
+        language = detection.language if detection.language in SUPPORTED_LANGUAGES else 'python'
 
     session_id = data.get('session_id')
     if session_id:
@@ -150,9 +162,9 @@ def create_analysis(request):
         'lint_issues': [],
     }
     try:
-        syntax_errors = CodeAnalyzer.check_syntax(source_code)
-        undefined_names = CodeAnalyzer.extract_undefined_names(source_code)
-        lint_issues = CodeAnalyzer.run_ruff(source_code)
+        syntax_errors = CodeAnalyzer.check_syntax_for_language(source_code, language)
+        undefined_names = CodeAnalyzer.extract_undefined_names(source_code) if language == 'python' else []
+        lint_issues = CodeAnalyzer.run_ruff(source_code) if language == 'python' else []
         static_result.update({
             'syntax_errors': [
                 {'line': error.line, 'column': error.column, 'message': error.message}
@@ -189,7 +201,7 @@ def create_analysis(request):
             if parsed_tracebacks or placeholder_error and terminal_logs.strip()
             else error_message or terminal_logs
         )
-        runtime_diagnosis = CodeAnalyzer.analyze_error_context(source_code, diagnostic_input)
+        runtime_diagnosis = CodeAnalyzer.analyze_error_context(source_code, diagnostic_input, language)
         if parsed_tracebacks:
             primary = parsed_tracebacks[-1]
             tracebacks = [
@@ -279,6 +291,8 @@ def create_analysis(request):
 
     return Response({
         'analysis_status': analysis_status,
+        'language': language,
+        'language_detection': detection.to_dict(),
         'static_analysis': static_result,
         'runtime_diagnosis': runtime_diagnosis,
         'educational_diagnosis': effective_diagnosis,

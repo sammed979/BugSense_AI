@@ -2,10 +2,64 @@
 // API_BASE_URL is defined in runtime-config.js and stored in window.BugSenseConfig
 const API_BASE_URL = window.BugSenseConfig?.API_BASE_URL || 'http://127.0.0.1:8000/api/v1';
 
+// Warms up a sleeping backend (e.g. Render free tier) with exponential backoff
+// instead of reloading the page. Only one warm-up loop runs at a time.
+class RetryManager {
+    constructor() {
+        this.inflight = null;
+        this.delays = [1000, 2000, 4000, 8000];
+    }
+
+    isColdStartError(error) {
+        const message = error?.message || '';
+        return /Cannot reach the BugSense backend|network request could not be completed|Failed to fetch|NetworkError|Load failed/i.test(message);
+    }
+
+    healthUrl() {
+        try {
+            return new URL('/health/', API_BASE_URL).href;
+        } catch {
+            return `${API_BASE_URL}/health/`;
+        }
+    }
+
+    announce(message) {
+        try {
+            window.dispatchEvent(new CustomEvent('bugsense-warmup', { detail: { message } }));
+        } catch {
+            // Non-browser environment: nothing to announce to.
+        }
+    }
+
+    async warmUp() {
+        if (this.inflight) return this.inflight;
+        const healthUrl = this.healthUrl();
+        this.inflight = (async () => {
+            this.announce('Warming up the BugSense backend…');
+            for (let attempt = 0; attempt <= this.delays.length; attempt += 1) {
+                try {
+                    await fetch(healthUrl, { method: 'GET', cache: 'no-store' });
+                    this.announce('Backend is ready.');
+                    return true;
+                } catch (error) {
+                    if (attempt === this.delays.length) {
+                        this.announce('The backend is still starting. Please try again in a moment.');
+                        throw error;
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, this.delays[attempt]));
+                }
+            }
+            return false;
+        })().finally(() => { this.inflight = null; });
+        return this.inflight;
+    }
+}
+
 class APIClient {
     constructor() {
         this.refreshing = null;
         this.learningLessonRequests = new Map();
+        this.retryManager = new RetryManager();
     }
 
     getAccessToken() {
@@ -154,7 +208,16 @@ class APIClient {
 
         // Add timeout for long-running requests (like AI repairs)
         const timeout = options.timeout || 60000;
-        let response = await this.fetchWithTimeout(url, config, timeout);
+        let response;
+        try {
+            response = await this.fetchWithTimeout(url, config, timeout);
+        } catch (error) {
+            // A sleeping/starting backend is retried with a shared warm-up loop
+            // rather than failing immediately (no page reload).
+            if (!this.retryManager.isColdStartError(error)) throw error;
+            await this.retryManager.warmUp();
+            response = await this.fetchWithTimeout(url, config, timeout);
+        }
 
         if (response.status === 401) {
             if (!this.getRefreshToken()) {

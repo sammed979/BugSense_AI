@@ -12,6 +12,40 @@
 - SQLite (development) or PostgreSQL (production)
 - 2GB RAM minimum, 4GB recommended
 - 10GB disk space minimum
+- Multi-language execution toolchains: `gcc`, `g++`, `javac`/`java` (JDK 17+), and `node` (see below)
+
+### Multi-Language Execution Toolchains
+
+The workspace detects Python, Java, C, C++, and JavaScript and runs the code with
+the matching toolchain. Install every toolchain on the host or the analysis and
+execution endpoints degrade to `blocked` for the missing language.
+
+Ubuntu / Debian:
+
+```bash
+sudo apt-get update && sudo apt-get install -y \
+    build-essential default-jdk nodejs
+```
+
+macOS (Homebrew):
+
+```bash
+brew install gcc openjdk node
+```
+
+**Render (native runtime):** set the service Build Command so the toolchains are
+present before the app boots:
+
+```bash
+apt-get update && apt-get install -y build-essential default-jdk nodejs && pip install -r backend/requirements.txt
+```
+
+Keep the Start Command / Procfile unchanged:
+`python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 120`
+
+`gcc`/`g++` and `node` are found automatically via `PATH`; `javac`/`java` come from
+`default-jdk`. If a toolchain is absent, the verification step reports the language
+as `blocked` instead of failing the request.
 
 ### Python Dependencies
 ```bash

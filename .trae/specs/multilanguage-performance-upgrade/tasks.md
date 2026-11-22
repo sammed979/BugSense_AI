@@ -1,7 +1,7 @@
 # BugSense AI — Multi-Language & Performance Upgrade: Implementation Plan
 
 ## Task 1: Fix frontend blank-screen by booting on DOMContentLoaded and adding loading states
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: None
 - **Description**:
@@ -17,7 +17,7 @@
   - `rule` TR-1.3: With the backend stopped, opening `#/workspace` renders the sidebar and editor shell without a blank screen; evidence: manual browser test.
 
 ## Task 2: Add Render cold-start retry manager with exponential backoff
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: None
 - **Description**:
@@ -30,7 +30,7 @@
   - `rule` TR-2.2: Retries never call `window.location.reload`; evidence: grep for `location.reload` returns nothing in the retry path.
 
 ## Task 3: Implement automatic language detection service
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: None
 - **Description**:
@@ -46,7 +46,7 @@
   - `rule` TR-3.2: A short ambiguous snippet returns `confident=False`; evidence: test assertion.
 
 ## Task 4: Build multi-language sandbox runners with resource limits
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: None
 - **Description**:
@@ -62,7 +62,7 @@
   - `rule` TR-4.3: Java/C/C++/JS runners produce correct exit code / stdout for a trivial program; evidence: tests where toolchain present.
 
 ## Task 5: Generalize CodeAnalyzer to multi-language analysis handlers
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: Task 3, Task 4
 - **Description**:
@@ -79,7 +79,7 @@
   - `rule` TR-5.2: Each analysis result contains all 10 educational keys; evidence: test asserting keys.
 
 ## Task 6: Wire multi-language analysis endpoint (analyze/execute/repair/verify)
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: Task 3, Task 4, Task 5
 - **Description**:
@@ -94,7 +94,7 @@
   - `rule` TR-6.2: A repaired Java sample compiles with javac; evidence: `tests/test_multilanguage_repair.py`.
 
 ## Task 7: Multi-language repair prompt + same-language validation
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: Task 5, Task 6
 - **Description**:
@@ -105,7 +105,7 @@
   - `rule` TR-7.1: Repaired code for each language passes the language's compile/check; evidence: tests.
 
 ## Task 8: Extend LogSense to multi-language logs
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: medium
 - **Depends On**: Task 3
 - **Description**:
@@ -117,7 +117,7 @@
   - `rule` TR-8.1: Java exception, C compiler error, JS ReferenceError each classified correctly; evidence: `tests/test_logsense.py` additions.
 
 ## Task 9: Frontend workspace multi-language UI
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: Task 3, Task 6
 - **Description**:
@@ -131,7 +131,7 @@
   - `rule` TR-9.2: both app.js files identical hash; evidence: Get-FileHash.
 
 ## Task 10: Update deployment config for multi-language toolchains
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: medium
 - **Depends On**: Task 4
 - **Description**:
@@ -143,7 +143,7 @@
   - `rule` TR-10.1: Dockerfile.backend installs gcc, g++, javac/java, node; evidence: Dockerfile review.
 
 ## Task 11: Full regression test run and final report
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: high
 - **Depends On**: Task 1-10
 - **Description**:
@@ -155,3 +155,13 @@
 - **Test Requirements**:
   - `rule` TR-11.1: Full test suite passes (except known env tests); evidence: test output.
   - `rule` TR-11.2: `manage.py check` clean; `node --check` clean on both app.js; evidence: command output.
+
+## Completion Notes
+
+- **Automatic language detection** lives in [language_detector.py](file:///c:/Users/samme/OneDrive/Desktop/project%20file/BugSense_AI/backend/services/language_detector.py); the frontend has a mirror implementation in [app.js](file:///c:/Users/samme/OneDrive/Desktop/project%20file/BugSense_AI/frontend/js/app.js#L59-L122) (`detectLanguage` / `resolveLanguage`). A confident detection always overrides the manual selector.
+- **Task 5 deviation**: multi-language analysis is implemented as dispatch methods inside [code_analyzer.py](file:///c:/Users/samme/OneDrive/Desktop/project%20file/BugSense_AI/backend/services/code_analyzer.py) (`check_syntax_for_language`, `_analyze_python` / `_analyze_javascript` / `_analyze_compiled`) rather than a separate `services/languages/` package. Behaviour matches the intent; routing is covered by `CompilerDispatchTests` and `AnalysisRoutingTests`.
+- **Task 8 (LogSense)**: multi-language log classification is already implemented and covered by the 20 tests in `tests/test_logsense.py` (Java, JavaScript, C/C++ toolchain, database, HTTP, build, Docker).
+- **Task 4 bug fixes found by the new toolchain tests**: (1) the sandbox subprocess env was stripped to `PATH/HOME/LANG`, which crashed the Windows JVM — now an allow-list of system variables is passed through (`_sandbox_env` in [runners.py](file:///c:/Users/samme/OneDrive/Desktop/project%20file/BugSense_AI/backend/sandbox/runners.py)); (2) `JavaRunner._class_name` used `re_class.match`, which missed `public class X`, causing javac "should be declared in a file named X.java" — fixed to `re_class.search`.
+- **Known pre-existing / environmental failures (not caused by this work)**: `tests.test_logsense.test_endpoint_requires_auth_validates_size_and_saves_history` (`session_id` asserts a hardcoded PK of `1`, which breaks when other tests advance the Postgres sequence — passes in isolation); and the two `tests.test_production_database_settings` Render tests, whose subprocess inherits `DATABASE_URL` from the repo-root `.env.local`.
+- **Evidence**: `manage.py check` clean; `compileall` clean; `node --check` clean on both `app.js`/`api.js` mirrors; `tests.test_language_detection` 26 tests OK (2 skipped: no local gcc/g++); `tests.test_code_analyzer` + `tests.test_health` OK; `tests.test_logsense` 20 OK; full suite 116 tests, 3 known environmental failures.
+

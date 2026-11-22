@@ -9,7 +9,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.dashboard.models import DebuggingSession, RepairAttempt
+from services.language_detector import LanguageDetector
 from services.repair_diagnostics import log_provider_exception, log_provider_failure
+
+SUPPORTED_LANGUAGES = ('python', 'java', 'c', 'cpp', 'javascript')
 
 
 def _with_request_id(response, request_id):
@@ -27,7 +30,8 @@ def create_repair(request):
     error_message = data.get('error_message', '')
     traceback_text = data.get('traceback', '')
     diagnosis = data.get('diagnosis') or {}
-    language = data.get('language', 'python')
+    selected_language = data.get('language', '') or ''
+    filename = data.get('filename')
     session_id = data.get('session_id')
     use_heuristic = data.get('use_heuristic') is True
     allow_external_ai = data.get('allow_external_ai') is True
@@ -36,8 +40,17 @@ def create_repair(request):
         return _with_request_id(Response({'error': 'source_code is required'}, status=status.HTTP_400_BAD_REQUEST), request_id)
     if len(source_code) > 200_000:
         return _with_request_id(Response({'error': 'source_code exceeds the 200 KB repair limit'}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE), request_id)
-    if language != 'python':
-        return _with_request_id(Response({'error': 'Only Python repair is currently supported'}, status=status.HTTP_400_BAD_REQUEST), request_id)
+
+    # Detect language from the actual source. A confident detection wins over
+    # the client selection so Java/C/C++/JS code is never repaired as Python.
+    detection = LanguageDetector.detect(source_code, filename=filename)
+    if detection.confident and detection.language in SUPPORTED_LANGUAGES:
+        language = detection.language
+    elif selected_language in SUPPORTED_LANGUAGES:
+        language = selected_language
+    else:
+        language = detection.language if detection.language in SUPPORTED_LANGUAGES else 'python'
+
     from services.provider_router import settings_for
     provider_settings = settings_for(request.user)
     selected_mode = provider_settings.mode
@@ -65,6 +78,18 @@ def create_repair(request):
 
     try:
         if use_heuristic:
+            if language != 'python':
+                session.status = 'REPAIR_FAILED'
+                session.save(update_fields=['status', 'updated_at'])
+                return _with_request_id(Response({
+                    'error': f'Quick Fix (heuristic repair) supports Python only. Use Repair (AI) for {language} code.',
+                    'error_type': 'unsupported_language_for_heuristic',
+                    'source': 'error',
+                    'language': language,
+                    'repaired_code': source_code,
+                    'session_id': session.id,
+                    'request_id': request_id,
+                }, status=status.HTTP_422_UNPROCESSABLE_ENTITY), request_id)
             from services.local_repair_engine import LocalRepairEngine
             repair_result = LocalRepairEngine.generate_repair(source_code, error_message)
             repair_result['provider'] = 'Local Quick Fix'
@@ -83,6 +108,8 @@ def create_repair(request):
             ))
 
         repair_result['session_id'] = session.id
+        repair_result.setdefault('language', language)
+        repair_result['language_detection'] = detection.to_dict()
         if repair_result.get('error') or repair_result.get('success') is False:
             session.status = 'REPAIR_FAILED'
             session.save(update_fields=['status', 'updated_at'])
